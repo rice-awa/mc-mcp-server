@@ -1,0 +1,212 @@
+# MCP集成规范
+
+## 概述
+
+本文档描述了Minecraft MCP服务器如何集成Model Context Protocol (MCP)标准，实现Minecraft客户端与大语言模型(LLM)之间的标准化通信。
+
+## MCP简介
+
+Model Context Protocol (MCP) 是一个标准化协议，允许应用程序以标准化的方式为大语言模型(LLM)提供上下文，将提供上下文的关注点与实际的LLM交互分离。
+
+## 集成架构
+
+```
+┌────────────────┐    WebSocket    ┌────────────────┐    MCP    ┌────────────────┐
+│  Minecraft客户端 │<--------------->│  MC-MCP服务器   │<--------->│    LLM API     │
+└────────────────┘                 └────────────────┘           └────────────────┘
+```
+
+## MCP资源定义
+
+### 1. 资源类型
+
+在MC-MCP服务器中，我们定义以下MCP资源：
+
+- **游戏状态资源**: 提供Minecraft游戏当前状态的信息
+- **玩家资源**: 提供关于玩家的信息
+- **世界资源**: 提供关于游戏世界的信息
+
+### 2. 资源URI模式
+
+资源采用以下URI模式：
+
+```
+minecraft://{resource_type}/{resource_id}
+```
+
+例如：
+- `minecraft://player/current` - 当前玩家信息
+- `minecraft://world/status` - 世界状态信息
+
+## MCP工具定义
+
+### 1. 命令工具
+
+允许LLM执行Minecraft命令：
+
+```python
+@mcp.tool()
+def run_command(command: str) -> str:
+    """在Minecraft中执行命令"""
+    # 实现命令执行逻辑
+    return "命令执行结果"
+```
+
+### 2. 消息工具
+
+允许LLM向游戏内发送消息：
+
+```python
+@mcp.tool()
+def send_message(message: str) -> None:
+    """向游戏内发送消息"""
+    # 实现消息发送逻辑
+```
+
+### 3. 脚本工具
+
+允许LLM执行脚本事件：
+
+```python
+@mcp.tool()
+def run_script(script_id: str, content: str) -> None:
+    """执行脚本事件"""
+    # 实现脚本执行逻辑
+```
+
+## MCP提示模板
+
+### 系统提示模板
+
+```
+你是一个Minecraft游戏助手，可以帮助玩家解决问题、提供建议和执行命令。
+
+可用工具:
+- run_command: 执行Minecraft命令
+- send_message: 发送游戏内消息
+- run_script: 执行脚本事件
+
+可用资源:
+- minecraft://player/current: 当前玩家信息
+- minecraft://world/status: 世界状态信息
+
+请保持友好和专业的态度。回答应简洁明了，适合在游戏内阅读。
+```
+
+## 数据流程
+
+### 1. 输入流程
+
+1. 玩家在Minecraft中发送消息
+2. WebSocket服务器接收消息
+3. 服务器解析消息并提取命令
+4. 对于LLM请求，服务器创建MCP上下文
+5. 服务器通过MCP标准向LLM发送请求
+
+### 2. 输出流程
+
+1. LLM通过MCP标准返回响应
+2. 服务器接收并解析响应
+3. 服务器将响应转换为WebSocket消息格式
+4. 服务器向Minecraft客户端发送消息
+
+## 示例交互
+
+### 示例1: 玩家请求游戏帮助
+
+```
+玩家: "GPT 聊天 如何制作钻石镐?"
+
+MCP请求:
+{
+  "prompt": "如何制作钻石镐?",
+  "resources": ["minecraft://recipes/diamond_pickaxe"],
+  "context": {...}
+}
+
+LLM响应:
+{
+  "reasoning": "我需要告诉玩家制作钻石镐的具体步骤和所需材料...",
+  "content": "制作钻石镐需要3个钻石和2根木棍。将它们在工作台上按'T'形排列，顶部一行放3个钻石，中间格放1根木棍，最底部中间格放1根木棍。"
+}
+```
+
+### 示例2: 执行游戏命令
+
+```
+玩家: "GPT 聊天 给我一个钻石剑"
+
+MCP请求:
+{
+  "prompt": "给我一个钻石剑",
+  "tools": ["run_command"],
+  "context": {...}
+}
+
+LLM响应:
+{
+  "reasoning": "玩家想要一个钻石剑，我可以使用run_command工具执行give命令...",
+  "tool_calls": [
+    {
+      "name": "run_command",
+      "parameters": {
+        "command": "give @p diamond_sword 1"
+      }
+    }
+  ],
+  "content": "已经给你一把钻石剑了，请查看你的物品栏。"
+}
+```
+
+## MCP服务器配置
+
+### 1. 服务器初始化
+
+```python
+from mcp.server.fastmcp import FastMCP
+
+# 创建MCP服务器
+mcp = FastMCP("Minecraft Assistant")
+
+# 添加资源和工具
+@mcp.resource("minecraft://player/{player_name}")
+def get_player(player_name: str) -> dict:
+    # 实现获取玩家信息的逻辑
+    return {"name": player_name, "health": 20, "level": 30}
+
+@mcp.tool()
+def run_command(command: str) -> str:
+    # 实现命令执行逻辑
+    return "命令执行结果"
+```
+
+### 2. 处理MCP请求
+
+```python
+async def handle_mcp_request(prompt, conversation):
+    # 创建MCP请求
+    mcp_request = {
+        "prompt": prompt,
+        "resources": ["minecraft://player/current"],
+        "tools": ["run_command", "send_message"]
+    }
+    
+    # 发送MCP请求并获取响应
+    response = await mcp.process_request(mcp_request)
+    
+    # 处理响应
+    return response
+```
+
+## 安全考虑
+
+1. **命令限制**: 限制LLM可以执行的命令范围，防止危险操作
+2. **资源访问控制**: 控制LLM可以访问的游戏资源
+3. **用户认证**: 确保只有授权用户可以使用LLM功能
+
+## 未来扩展
+
+1. **更多资源类型**: 添加更多游戏内资源类型的支持
+2. **高级工具**: 实现更复杂的游戏交互工具
+3. **自定义提示模板**: 允许用户自定义LLM提示模板
+4. **多模型支持**: 支持多种LLM模型的无缝切换 

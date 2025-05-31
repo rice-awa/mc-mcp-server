@@ -2,36 +2,47 @@
 
 ## 项目概述
 
-Minecraft MCP服务器是一个连接Minecraft客户端与大语言模型(LLM)的WebSocket服务器，通过MCP标准实现智能交互。
+Minecraft MCP服务器是一个集成系统，由两个核心组件组成：AIAgent(MCP-server)负责管理AI工具和处理LLM交互，以及基于WebSocket和脚本API的MC服务器负责处理游戏交互。系统支持两种请求路径：外部MCP客户端调用和游戏内聊天监听。
 
 ## 文档目录
 
 ### 1. 项目需求文档
 
-- [项目需求描述文档 (PRD)](pr.md) - 详细描述项目的核心功能、用户交互流程和验收标准
+- [项目需求描述文档 (PRD)](pr.md) - 详细描述项目的核心功能、请求路径、用户交互流程和验收标准
 
 ### 2. 技术规范文档
 
 - [技术架构文档](technical_architecture.md) - 描述系统的整体架构、核心组件和技术栈
-- [WebSocket通信规范](websocket_spec.md) - 定义客户端与服务器之间的WebSocket通信协议
-- [MCP集成规范](mcp_integration.md) - 说明如何集成Model Context Protocol标准
+- [WebSocket通信规范](websocket_spec.md) - 定义客户端与服务器之间的WebSocket通信协议和脚本API集成
+- [MCP集成规范](mcp_integration.md) - 说明如何集成Model Context Protocol标准和两种请求路径
 
 ### 3. 外部参考文档
 
 - [MCP Python SDK](../MCP_PYTHON_SDK.md) - Model Context Protocol的Python实现参考
+- [Minecraft脚本API文档](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/) - Minecraft脚本API官方文档
+
+## 系统组件
+
+1. **AIAgent (MCP-server)** - 负责管理AI工具和处理LLM交互
+2. **MC服务器** - 基于WebSocket和脚本API的服务器，处理游戏交互
+
+## 请求路径
+
+1. **外部MCP客户端路径** - 外部MCP客户端通过AIAgent与Minecraft交互
+2. **游戏内聊天路径** - 玩家通过游戏内聊天触发AIAgent
 
 ## 快速入门
 
 1. 阅读[项目需求描述文档](pr.md)了解项目概况
 2. 参考[技术架构文档](technical_architecture.md)了解系统设计
-3. 查看[WebSocket通信规范](websocket_spec.md)了解通信协议
-4. 学习[MCP集成规范](mcp_integration.md)了解LLM集成方式
+3. 查看[WebSocket通信规范](websocket_spec.md)了解通信协议和脚本API集成
+4. 学习[MCP集成规范](mcp_integration.md)了解LLM集成方式和请求路径
 
 ## 开发指南
 
 1. 安装依赖:
    ```
-   pip install asyncio websockets uuid
+   pip install asyncio websockets uuid mcp
    ```
 
 2. 设置环境变量:
@@ -39,12 +50,17 @@ Minecraft MCP服务器是一个连接Minecraft客户端与大语言模型(LLM)�
    export siliconflow_apikey=your_api_key
    ```
 
-3. 运行服务器:
+3. 启动MC服务器:
    ```
-   python main_server.py
+   python mc_server.py
    ```
 
-4. 连接Minecraft客户端到服务器(默认端口8080)
+4. 启动AIAgent:
+   ```
+   python ai_agent.py
+   ```
+
+5. 连接Minecraft客户端到MC服务器(默认端口8080)
 
 ## 贡献指南
 
@@ -55,4 +71,5 @@ Minecraft MCP服务器是一个连接Minecraft客户端与大语言模型(LLM)�
 ## 版本历史
 
 - v0.1: 基础WebSocket服务器和LLM集成
-- v0.2: 完善命令系统和安全认证(当前版本) 
+- v0.2: 完善命令系统和安全认证
+- v0.3: 脚本API集成和AIAgent实现

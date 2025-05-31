@@ -2,7 +2,7 @@
 
 ## 概述
 
-本文档描述了Minecraft MCP服务器如何集成Model Context Protocol (MCP)标准，实现Minecraft客户端与大语言模型(LLM)之间的标准化通信。
+本文档描述了Minecraft MCP服务器如何集成Model Context Protocol (MCP)标准，实现两种请求路径：外部MCP客户端调用和游戏内聊天监听。系统由AIAgent(MCP-server)和基于WebSocket和脚本API的MC服务器组成。
 
 ## MCP简介
 
@@ -11,20 +11,51 @@ Model Context Protocol (MCP) 是一个标准化协议，允许应用程序以标
 ## 集成架构
 
 ```
+                                  ┌─────────────────┐
+                                  │ 外部MCP客户端    │
+                                  └────────┬────────┘
+                                           │ MCP
+                                           ▼
 ┌────────────────┐    WebSocket    ┌────────────────┐    MCP    ┌────────────────┐
-│  Minecraft客户端 │<--------------->│  MC-MCP服务器   │<--------->│    LLM API     │
-└────────────────┘                 └────────────────┘           └────────────────┘
+│  Minecraft客户端 │<--------------->│  MC服务器      │<--------->│  AIAgent       │<---┐
+└────────────────┘                 └────────────────┘           └────────────────┘    │
+                                                                        │             │
+                                                                        ▼             │
+                                                              ┌────────────────┐      │
+                                                              │    LLM API     │------┘
+                                                              └────────────────┘
 ```
+
+## 请求路径
+
+### 1. 外部MCP客户端路径
+
+外部MCP客户端通过AIAgent与Minecraft交互：
+
+1. 外部MCP客户端使用MCP协议连接到AIAgent
+2. AIAgent处理请求并通过WebSocket与MC服务器通信
+3. MC服务器通过脚本API与Minecraft客户端交互
+4. 结果通过相同路径返回给外部MCP客户端
+
+### 2. 游戏内聊天路径
+
+玩家通过游戏内聊天触发AIAgent：
+
+1. 玩家在Minecraft中发送聊天消息
+2. MC服务器通过WebSocket和脚本API监听这些消息
+3. MC服务器将特定命令转发给AIAgent
+4. AIAgent处理请求并通过LLM API获取响应
+5. 响应通过MC服务器返回到游戏内
 
 ## MCP资源定义
 
 ### 1. 资源类型
 
-在MC-MCP服务器中，我们定义以下MCP资源：
+在AIAgent中，我们定义以下MCP资源：
 
-- **游戏状态资源**: 提供Minecraft游戏当前状态的信息
-- **玩家资源**: 提供关于玩家的信息
-- **世界资源**: 提供关于游戏世界的信息
+- **游戏状态资源**: 通过脚本API提供Minecraft游戏当前状态的信息
+- **玩家资源**: 通过脚本API提供关于玩家的信息
+- **世界资源**: 通过脚本API提供关于游戏世界的信息
 
 ### 2. 资源URI模式
 
@@ -42,13 +73,13 @@ minecraft://{resource_type}/{resource_id}
 
 ### 1. 命令工具
 
-允许LLM执行Minecraft命令：
+允许LLM通过脚本API执行Minecraft命令：
 
 ```python
 @mcp.tool()
 def run_command(command: str) -> str:
     """在Minecraft中执行命令"""
-    # 实现命令执行逻辑
+    # 通过MC服务器和脚本API执行命令
     return "命令执行结果"
 ```
 
@@ -60,7 +91,7 @@ def run_command(command: str) -> str:
 @mcp.tool()
 def send_message(message: str) -> None:
     """向游戏内发送消息"""
-    # 实现消息发送逻辑
+    # 通过MC服务器和脚本API发送消息
 ```
 
 ### 3. 脚本工具
@@ -71,7 +102,19 @@ def send_message(message: str) -> None:
 @mcp.tool()
 def run_script(script_id: str, content: str) -> None:
     """执行脚本事件"""
-    # 实现脚本执行逻辑
+    # 通过MC服务器和脚本API执行脚本
+```
+
+### 4. 游戏信息获取工具
+
+允许LLM获取游戏内信息：
+
+```python
+@mcp.tool()
+def get_game_info(info_type: str) -> dict:
+    """获取游戏内信息"""
+    # 通过MC服务器和脚本API获取游戏信息
+    return {"type": info_type, "data": {...}}
 ```
 
 ## MCP提示模板
@@ -85,30 +128,26 @@ def run_script(script_id: str, content: str) -> None:
 - run_command: 执行Minecraft命令
 - send_message: 发送游戏内消息
 - run_script: 执行脚本事件
-
-可用资源:
-- minecraft://player/current: 当前玩家信息
-- minecraft://world/status: 世界状态信息
+- get_game_info: 获取游戏内信息
 
 请保持友好和专业的态度。回答应简洁明了，适合在游戏内阅读。
 ```
 
 ## 数据流程
 
-### 1. 输入流程
+### 1. 外部MCP客户端路径数据流
 
-1. 玩家在Minecraft中发送消息
-2. WebSocket服务器接收消息
-3. 服务器解析消息并提取命令
-4. 对于LLM请求，服务器创建MCP上下文
-5. 服务器通过MCP标准向LLM发送请求
+```
+外部MCP客户端 -> MCP请求 -> AIAgent -> WebSocket消息 -> MC服务器 -> 脚本API -> Minecraft客户端
+Minecraft客户端 -> 脚本API -> MC服务器 -> WebSocket响应 -> AIAgent -> MCP响应 -> 外部MCP客户端
+```
 
-### 2. 输出流程
+### 2. 游戏内聊天路径数据流
 
-1. LLM通过MCP标准返回响应
-2. 服务器接收并解析响应
-3. 服务器将响应转换为WebSocket消息格式
-4. 服务器向Minecraft客户端发送消息
+```
+Minecraft客户端 -> 聊天消息 -> 脚本API -> MC服务器 -> 命令解析 -> AIAgent -> LLM请求
+LLM API -> LLM响应 -> AIAgent -> 响应处理 -> MC服务器 -> WebSocket消息 -> Minecraft客户端
+```
 
 ## 示例交互
 
@@ -120,7 +159,6 @@ def run_script(script_id: str, content: str) -> None:
 MCP请求:
 {
   "prompt": "如何制作钻石镐?",
-  "resources": ["minecraft://recipes/diamond_pickaxe"],
   "context": {...}
 }
 
@@ -158,7 +196,28 @@ LLM响应:
 }
 ```
 
-## MCP服务器配置
+### 示例3: 外部MCP客户端请求
+
+```
+外部MCP客户端请求:
+{
+  "prompt": "在玩家周围生成一圈火焰",
+  "tools": ["run_script"]
+}
+
+AIAgent处理:
+- 调用run_script工具
+- MC服务器通过脚本API执行脚本
+- 返回执行结果
+
+MCP响应:
+{
+  "content": "已在玩家周围生成火焰圈",
+  "tool_results": [...]
+}
+```
+
+## AIAgent配置
 
 ### 1. 服务器初始化
 
@@ -171,16 +230,16 @@ mcp = FastMCP("Minecraft Assistant")
 # 添加资源和工具
 @mcp.resource("minecraft://player/{player_name}")
 def get_player(player_name: str) -> dict:
-    # 实现获取玩家信息的逻辑
+    # 通过MC服务器和脚本API获取玩家信息
     return {"name": player_name, "health": 20, "level": 30}
 
 @mcp.tool()
 def run_command(command: str) -> str:
-    # 实现命令执行逻辑
+    # 通过MC服务器和脚本API执行命令
     return "命令执行结果"
 ```
 
-### 2. 处理MCP请求
+### 2. MC服务器集成
 
 ```python
 async def handle_mcp_request(prompt, conversation):
@@ -188,7 +247,7 @@ async def handle_mcp_request(prompt, conversation):
     mcp_request = {
         "prompt": prompt,
         "resources": ["minecraft://player/current"],
-        "tools": ["run_command", "send_message"]
+        "tools": ["run_command", "send_message", "get_game_info"]
     }
     
     # 发送MCP请求并获取响应
@@ -196,6 +255,13 @@ async def handle_mcp_request(prompt, conversation):
     
     # 处理响应
     return response
+
+# WebSocket消息处理
+async def handle_websocket_message(message):
+    if is_chat_command(message):
+        # 处理游戏内聊天命令
+        response = await handle_mcp_request(extract_prompt(message), conversation)
+        await send_to_minecraft(response)
 ```
 
 ## 安全考虑
@@ -203,10 +269,12 @@ async def handle_mcp_request(prompt, conversation):
 1. **命令限制**: 限制LLM可以执行的命令范围，防止危险操作
 2. **资源访问控制**: 控制LLM可以访问的游戏资源
 3. **用户认证**: 确保只有授权用户可以使用LLM功能
+4. **外部MCP客户端验证**: 验证外部MCP客户端的身份和权限
 
 ## 未来扩展
 
 1. **更多资源类型**: 添加更多游戏内资源类型的支持
 2. **高级工具**: 实现更复杂的游戏交互工具
 3. **自定义提示模板**: 允许用户自定义LLM提示模板
-4. **多模型支持**: 支持多种LLM模型的无缝切换 
+4. **多模型支持**: 支持多种LLM模型的无缝切换
+5. **脚本API扩展**: 利用更多脚本API功能增强交互能力 

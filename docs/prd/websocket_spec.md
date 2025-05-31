@@ -2,7 +2,34 @@
 
 ## 概述
 
-本文档定义了Minecraft MCP服务器与Minecraft客户端之间的WebSocket通信协议规范。该协议基于JSON格式的消息交换，支持事件订阅、命令执行和消息传递等功能。
+本文档定义了Minecraft MCP服务器与Minecraft客户端之间的WebSocket通信协议规范，以及与脚本API的集成。该协议基于JSON格式的消息交换，支持事件订阅、命令执行和消息传递等功能，同时通过脚本API获取游戏内信息。
+
+## 系统架构
+
+系统支持两种主要的请求路径：
+
+### 1. 外部MCP客户端路径
+
+```
+┌─────────────┐    MCP    ┌─────────────┐    WebSocket    ┌─────────────┐
+│ 外部MCP客户端 │─────────►│   AIAgent   │───────────────►│ Minecraft   │
+└─────────────┘           │ (MCP-server)│◄───────────────┤ 客户端       │
+                          └─────────────┘                └─────────────┘
+```
+
+### 2. 游戏内聊天路径
+
+```
+┌─────────────┐    聊天消息    ┌─────────────┐    MCP    ┌─────────────┐
+│ Minecraft   │───────────────►│   MC服务器   │─────────►│   AIAgent   │
+│ 客户端       │◄───────────────┤             │◄─────────┤ (MCP-server)│
+└─────────────┘    WebSocket   └─────────────┘          └─────────────┘
+                                                              │
+                                                              ▼
+                                                        ┌─────────────┐
+                                                        │   LLM API   │
+                                                        └─────────────┘
+```
 
 ## 连接建立
 
@@ -64,6 +91,10 @@ ws://{server_ip}:{port}
 支持的事件类型包括：
 - `PlayerMessage`: 玩家聊天消息
 - `ScriptEventReceived`: 脚本事件接收
+- `PlayerJoin`: 玩家加入游戏
+- `PlayerLeave`: 玩家离开游戏
+- `BlockPlaced`: 方块放置
+- `BlockBroken`: 方块破坏
 
 ## 命令请求
 
@@ -133,6 +164,53 @@ ws://{server_ip}:{port}
 }
 ```
 
+## 脚本API集成
+
+### 脚本API请求
+
+获取游戏内信息。
+
+```json
+{
+  "body": {
+    "origin": {
+      "type": "script"
+    },
+    "commandLine": "scriptapi 请求类型 参数",
+    "version": 17039360
+  },
+  "header": {
+    "requestId": "uuid-string",
+    "messagePurpose": "commandRequest",
+    "version": 1,
+    "EventName": "commandRequest"
+  }
+}
+```
+
+支持的请求类型包括：
+- `getPlayerInfo`: 获取玩家信息
+- `getWorldInfo`: 获取世界信息
+- `getBlockInfo`: 获取方块信息
+- `getEntityInfo`: 获取实体信息
+
+### 脚本API响应
+
+```json
+{
+  "body": {
+    "statusCode": 0,
+    "statusMessage": "",
+    "data": {
+      // 根据请求类型返回不同的数据结构
+    }
+  },
+  "header": {
+    "requestId": "uuid-string"
+  }
+}
+```
+
 ## 事件响应
 
 ### 玩家消息事件
@@ -187,10 +265,30 @@ ws://{server_ip}:{port}
 
 ### 思考过程特殊标记
 
-思考过程使用特殊标记进行包装：
+若使用推理模型，则思考过程使用特殊标记进行包装：
 
 - 开始标记: `|think-start|`
 - 结束标记: `|think-end|`
+
+## 请求路径处理
+
+### 外部MCP客户端路径
+
+1. AIAgent接收外部MCP客户端请求
+2. AIAgent将请求转换为WebSocket消息
+3. MC服务器接收WebSocket消息并处理
+4. MC服务器通过脚本API与游戏交互
+5. MC服务器将结果通过WebSocket返回给AIAgent
+6. AIAgent将结果转换为MCP响应并返回给外部MCP客户端
+
+### 游戏内聊天路径
+
+1. 玩家在游戏内发送聊天消息
+2. MC服务器通过WebSocket和脚本API接收消息
+3. MC服务器解析消息并识别命令
+4. 对于LLM相关命令，MC服务器将请求转发给AIAgent
+5. AIAgent处理请求并返回结果
+6. MC服务器将结果通过WebSocket发送回游戏内
 
 ## 安全认证
 
@@ -204,6 +302,10 @@ ws://{server_ip}:{port}
 ### 命令权限控制
 
 除登录命令外，所有命令均需验证令牌有效性。未登录用户的命令请求会被拒绝。
+
+### 外部MCP客户端认证
+
+外部MCP客户端需要提供有效的API密钥才能访问AIAgent。
 
 ## 错误处理
 
@@ -221,10 +323,11 @@ ws://{server_ip}:{port}
 - LLM API调用失败
 - 命令格式错误
 - 连接超时
+- 脚本API错误
 
 ## 示例交互流程
 
-### 完整的LLM对话流程
+### 完整的LLM对话流程（游戏内聊天路径）
 
 1. 客户端连接到WebSocket服务器
 2. 服务器发送欢迎消息
@@ -232,10 +335,21 @@ ws://{server_ip}:{port}
 4. 客户端发送登录命令: `#登录 密钥`
 5. 服务器验证并返回成功消息
 6. 客户端发送GPT聊天命令: `GPT 聊天 你好，请介绍一下自己`
-7. 服务器调用LLM API
-8. 服务器实时返回LLM思考过程（如启用）
-9. 服务器返回LLM最终回复
-10. 客户端展示回复内容
+7. MC服务器将请求转发给AIAgent
+8. AIAgent调用LLM API
+9. AIAgent将LLM响应返回给MC服务器
+10. MC服务器实时返回LLM思考过程（如启用）
+11. MC服务器返回LLM最终回复
+12. 客户端展示回复内容
+
+### 外部MCP客户端调用流程
+
+1. 外部MCP客户端连接到AIAgent
+2. 外部MCP客户端发送请求: `获取玩家位置`
+3. AIAgent将请求转换为脚本API请求
+4. MC服务器执行脚本API请求获取玩家位置
+5. MC服务器将结果返回给AIAgent
+6. AIAgent将结果转换为MCP响应并返回给外部MCP客户端
 
 ## 扩展性考虑
 
@@ -244,7 +358,9 @@ ws://{server_ip}:{port}
 1. 增加新的事件类型
 2. 扩展消息体字段
 3. 提高版本号以支持新功能
+4. 添加更多脚本API功能
+5. 支持更多外部MCP客户端集成
 
 ## 兼容性说明
 
-本协议设计兼容Minecraft Bedrock Edition的WebSocket接口，同时支持MCP标准的LLM交互。 
+本协议设计兼容Minecraft Bedrock Edition的WebSocket接口和脚本API，同时支持MCP标准的LLM交互。 

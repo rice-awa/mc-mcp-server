@@ -8,13 +8,13 @@ Minecraft MCP服务器是一个集成系统，由两个核心组件组成：AIAg
 
 ### 1. 项目需求文档
 
-- [项目需求描述文档 (PRD)](pr.md) - 详细描述项目的核心功能、请求路径、用户交互流程和验收标准
+- [项目需求描述文档 (PRD)](/docs/prd/pr.md) - 详细描述项目的核心功能、请求路径、用户交互流程和验收标准
 
 ### 2. 技术规范文档
 
-- [技术架构文档](technical_architecture.md) - 描述系统的整体架构、核心组件和技术栈
-- [WebSocket通信规范](websocket_spec.md) - 定义客户端与服务器之间的WebSocket通信协议和脚本API集成
-- [MCP集成规范](mcp_integration.md) - 说明如何集成Model Context Protocol标准和两种请求路径
+- [技术架构文档](/docs/prd/technical_architecture.md) - 描述系统的整体架构、核心组件和技术栈
+- [WebSocket通信规范](/docs/prd/websocket_spec.md) - 定义客户端与服务器之间的WebSocket通信协议和脚本API集成
+- [MCP集成规范](/docs/prd/mcp_integration.md) - 说明如何集成Model Context Protocol标准和两种请求路径
 
 ### 3. 外部参考文档
 
@@ -33,10 +33,10 @@ Minecraft MCP服务器是一个集成系统，由两个核心组件组成：AIAg
 
 ## 快速入门
 
-1. 阅读[项目需求描述文档](pr.md)了解项目概况
-2. 参考[技术架构文档](technical_architecture.md)了解系统设计
-3. 查看[WebSocket通信规范](websocket_spec.md)了解通信协议和脚本API集成
-4. 学习[MCP集成规范](mcp_integration.md)了解LLM集成方式和请求路径
+1. 阅读[项目需求描述文档](/docs/prd/pr.md)了解项目概况
+2. 参考[技术架构文档](/docs/prd/technical_architecture.md)了解系统设计
+3. 查看[WebSocket通信规范](/docs/prd/websocket_spec.md)了解通信协议和脚本API集成
+4. 学习[MCP集成规范](/docs/prd/mcp_integration.md)了解LLM集成方式和请求路径
 
 ## 开发指南
 

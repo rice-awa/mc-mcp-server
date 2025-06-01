@@ -45,7 +45,7 @@ def setup_logging(config=None):
         }
     
     # Create logger
-    logger = logging.getLogger("mc-mcp-server")
+    logger = logging.getLogger("mc-agent-server")
     
     # Set level
     level_name = config.get("level", "INFO")

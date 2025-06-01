@@ -5,7 +5,7 @@ import os
 import re
 import time
 
-logger = logging.getLogger("mc-mcp-server")
+logger = logging.getLogger("mc-agent-server")
 
 class LLMConversation:
     """

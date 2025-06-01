@@ -1,5 +1,5 @@
 """
-Minecraft MCP 服务器的入口文件
+Minecraft Agent 服务器的入口文件
 
 此文件作为程序的入口点，负责初始化和启动服务器，
 具体实现细节均位于server目录下。
@@ -10,10 +10,11 @@ import asyncio
 import logging
 import argparse
 import sys
+import subprocess
 from dotenv import load_dotenv
 
 from server.mc_server import MinecraftServer
-from server.mcp_server import MCPServer
+from server.agent_server import AgentServer
 from server.utils.logging import setup_logging
 
 # 加载环境变量
@@ -21,7 +22,7 @@ load_dotenv()
 
 # 设置日志
 setup_logging()
-logger = logging.getLogger("mc-mcp-server")
+logger = logging.getLogger("mc-agent-server")
 
 # 加载配置文件
 def load_config():
@@ -39,7 +40,7 @@ def load_config():
         logger.error(f"无法加载配置文件: {e}")
         return {
             "server": {"host": "0.0.0.0", "port": 8080},
-            "mcp": {"name": "Minecraft Assistant", "version": "1.0.0"},
+            "agent": {"name": "Minecraft Assistant", "version": "1.0.0"},
             "auth": {"required": True, "token_expiry": 86400},
             "logging": {"level": "INFO"}
         }
@@ -47,9 +48,10 @@ def load_config():
 # 解析命令行参数
 def parse_args():
     """解析命令行参数"""
-    parser = argparse.ArgumentParser(description="Minecraft MCP 服务器")
-    parser.add_argument("--full", action="store_true", help="运行完整服务器（Minecraft和MCP）")
+    parser = argparse.ArgumentParser(description="Minecraft Agent 服务器")
+    parser.add_argument("--full", action="store_true", help="运行完整服务器（Minecraft和Agent）")
     parser.add_argument("--debug", action="store_true", help="启用调试模式，记录WebSocket数据包")
+    parser.add_argument("--frontend", action="store_true", help="启动前端MCP服务器")
     return parser.parse_args()
 
 # 设置日志文件
@@ -106,15 +108,15 @@ async def handle_minecraft_message(client_id, event_type, message, minecraft_ser
                 else:
                     await minecraft_server.send_game_message(client_id, "请提供要运行的命令")
             
-            elif command.startswith("测试MCP"):
-                # 测试MCP
-                test_command = command[5:].strip()
+            elif command.startswith("测试Agent"):
+                # 测试Agent
+                test_command = command[7:].strip()
                 if test_command == "列出工具":
-                    # 获取MCP服务器实例
-                    mcp_server = minecraft_server.mcp_server
-                    if mcp_server:
+                    # 获取Agent服务器实例
+                    agent_server = minecraft_server.agent_server
+                    if agent_server:
                         # 获取工具列表
-                        tools = mcp_server.get_tools()
+                        tools = agent_server.get_tools()
                         # 发送工具列表到游戏
                         await minecraft_server.send_game_message(client_id, f"可用工具列表 ({len(tools)}个):")
                         for name, description in tools.items():
@@ -131,14 +133,14 @@ async def handle_minecraft_message(client_id, event_type, message, minecraft_ser
                                 
                             await minecraft_server.send_game_message(client_id, f"- {name}: {first_line}")
                     else:
-                        await minecraft_server.send_game_message(client_id, "MCP服务器未初始化")
+                        await minecraft_server.send_game_message(client_id, "Agent服务器未初始化")
 
                 elif test_command == "列出资源":
-                    # 获取MCP服务器实例
-                    mcp_server = minecraft_server.mcp_server
-                    if mcp_server:
+                    # 获取Agent服务器实例
+                    agent_server = minecraft_server.agent_server
+                    if agent_server:
                         # 获取资源列表
-                        resources = mcp_server.get_resources()
+                        resources = agent_server.get_resources()
                         # 发送资源列表到游戏
                         await minecraft_server.send_game_message(client_id, f"可用资源列表 ({len(resources)}个):")
                         for uri_pattern, description in resources.items():
@@ -155,15 +157,15 @@ async def handle_minecraft_message(client_id, event_type, message, minecraft_ser
                                 
                             await minecraft_server.send_game_message(client_id, f"- {uri_pattern}: {first_line}")
                     else:
-                        await minecraft_server.send_game_message(client_id, "MCP服务器未初始化")
+                        await minecraft_server.send_game_message(client_id, "Agent服务器未初始化")
                 
                 elif test_command.startswith("使用工具"):
                     # 使用指定的工具
                     tool_args = test_command[4:].strip().split(' ', 1)
                     if len(tool_args) >= 1:
                         tool_name = tool_args[0]
-                        mcp_server = minecraft_server.mcp_server
-                        if mcp_server and tool_name in mcp_server.tools:
+                        agent_server = minecraft_server.agent_server
+                        if agent_server and tool_name in agent_server.tools:
                             await minecraft_server.send_game_message(client_id, f"正在尝试使用工具: {tool_name}")
                             try:
                                 # 构建简单参数
@@ -179,7 +181,7 @@ async def handle_minecraft_message(client_id, event_type, message, minecraft_ser
                                 await minecraft_server.send_game_message(client_id, f"获取到的参数: {params}")
                                 
                                 # 调用工具
-                                tool_func = mcp_server.tools[tool_name]
+                                tool_func = agent_server.tools[tool_name]
                                 result = await tool_func(client_id=client_id, **params)
                                 
                                 # 发送结果
@@ -190,7 +192,7 @@ async def handle_minecraft_message(client_id, event_type, message, minecraft_ser
                                 await minecraft_server.send_game_message(client_id, f"执行工具时出错: {str(e)}")
                         else:
                             await minecraft_server.send_game_message(client_id, f"找不到工具: {tool_name}")
-                            await minecraft_server.send_game_message(client_id, "使用 '#测试MCP 列出工具' 查看可用工具")
+                            await minecraft_server.send_game_message(client_id, "使用 '#测试Agent 列出工具' 查看可用工具")
                     else:
                         await minecraft_server.send_game_message(client_id, "请指定要使用的工具名称")
                 
@@ -199,12 +201,12 @@ async def handle_minecraft_message(client_id, event_type, message, minecraft_ser
                     tool_name = test_command[4:].strip()
                     if not tool_name:
                         await minecraft_server.send_game_message(client_id, "请指定要查看的工具名称")
-                        await minecraft_server.send_game_message(client_id, "例如: #测试MCP 查看工具 execute_command")
+                        await minecraft_server.send_game_message(client_id, "例如: #测试Agent 查看工具 execute_command")
                     else:
-                        mcp_server = minecraft_server.mcp_server
-                        if mcp_server and tool_name in mcp_server.tools:
+                        agent_server = minecraft_server.agent_server
+                        if agent_server and tool_name in agent_server.tools:
                             # 获取工具描述
-                            tool_func = mcp_server.tools[tool_name]
+                            tool_func = agent_server.tools[tool_name]
                             description = tool_func.__doc__ or "无描述"
                             # 格式化描述
                             formatted_desc = "\n".join([line.strip() for line in description.split('\n') if line.strip()])
@@ -219,27 +221,27 @@ async def handle_minecraft_message(client_id, event_type, message, minecraft_ser
                                     await minecraft_server.send_game_message(client_id, line.strip())
                         else:
                             await minecraft_server.send_game_message(client_id, f"找不到工具: {tool_name}")
-                            await minecraft_server.send_game_message(client_id, "使用 '#测试MCP 列出工具' 查看可用工具")
+                            await minecraft_server.send_game_message(client_id, "使用 '#测试Agent 列出工具' 查看可用工具")
                 
                 elif test_command == "帮助":
                     # 显示帮助信息
-                    await minecraft_server.send_game_message(client_id, "MCP测试命令帮助:")
-                    await minecraft_server.send_game_message(client_id, "- 列出工具: 显示所有可用的MCP工具")
-                    await minecraft_server.send_game_message(client_id, "- 列出资源: 显示所有可用的MCP资源")
+                    await minecraft_server.send_game_message(client_id, "Agent测试命令帮助:")
+                    await minecraft_server.send_game_message(client_id, "- 列出工具: 显示所有可用的Agent工具")
+                    await minecraft_server.send_game_message(client_id, "- 列出资源: 显示所有可用的Agent资源")
                     await minecraft_server.send_game_message(client_id, "- 查看工具 [工具名]: 查看特定工具的详细描述")
                     await minecraft_server.send_game_message(client_id, "- 使用工具 [工具名] [参数]: 测试指定的工具")
-                    await minecraft_server.send_game_message(client_id, "  例如: #测试MCP 使用工具 send_message message=你好")
+                    await minecraft_server.send_game_message(client_id, "  例如: #测试Agent 使用工具 send_message message=你好")
                     await minecraft_server.send_game_message(client_id, "- 帮助: 显示此帮助信息")
                 
                 else:
                     # 未知测试命令
                     await minecraft_server.send_game_message(client_id, f"未知测试命令: {test_command}")
-                    await minecraft_server.send_game_message(client_id, "使用 '#测试MCP 帮助' 查看可用命令")
+                    await minecraft_server.send_game_message(client_id, "使用 '#测试Agent 帮助' 查看可用命令")
 
             else:
                 # 未知命令
                 await minecraft_server.send_game_message(client_id, f"未知命令: {command}")
-                await minecraft_server.send_game_message(client_id, "可用命令: 登录, GPT, 运行命令, 测试MCP")
+                await minecraft_server.send_game_message(client_id, "可用命令: 登录, GPT, 运行命令, 测试Agent")
 
 async def setup_minecraft_server(debug_mode=False):
     """设置并返回Minecraft服务器实例"""
@@ -250,96 +252,234 @@ async def setup_minecraft_server(debug_mode=False):
     temp_handler = lambda client_id, event_type, message: None
     
     # 创建Minecraft服务器
-    minecraft_server = MinecraftServer(config, temp_handler, debug_mode=debug_mode)
+    minecraft_server = MinecraftServer(
+        config=config,
+        event_handler=temp_handler,
+        debug_mode=debug_mode
+    )
     
-    # 创建一个包含minecraft_server的闭包函数
+    # 创建真正的处理函数，现在可以引用minecraft_server
     async def handler_with_server(client_id, event_type, message):
         await handle_minecraft_message(client_id, event_type, message, minecraft_server)
     
     # 更新处理函数
     minecraft_server.event_handler = handler_with_server
     
-    # 添加mcp_server属性，初始值为None
-    minecraft_server.mcp_server = None
-    
     return minecraft_server
 
-def setup_mcp_server(minecraft_server=None):
-    """设置并返回MCP服务器实例"""
+def setup_agent_server(minecraft_server=None):
+    """设置并返回Agent服务器实例"""
     # 加载配置
     config = load_config()
     
-    # 创建MCP服务器
-    mcp_server = MCPServer(config, minecraft_server)
+    # 创建Agent服务器
+    agent_server = AgentServer(config, minecraft_server)
     
-    # 如果有Minecraft服务器实例，设置相互引用
+    # 如果Minecraft服务器存在，设置其Agent服务器引用
     if minecraft_server:
-        minecraft_server.mcp_server = mcp_server
+        minecraft_server.agent_server = agent_server
     
-    # 加载并注册资源
-    from resources import player, world
-    player.register_resources(mcp_server)
-    world.register_resources(mcp_server)
+    # 加载工具和资源
+    logger.info("正在加载Agent工具和资源...")
     
-    # 加载并注册工具
-    from tools import commands, messages, script_api
-    commands.register_tools(mcp_server)
-    messages.register_tools(mcp_server)
-    script_api.register_tools(mcp_server)
+    # 动态导入工具和资源模块
+    try:
+        # 导入工具
+        import tools.commands
+        import tools.messages
+        import tools.script_api
+        
+        # 注册工具
+        tools.commands.register_tools(agent_server)
+        tools.messages.register_tools(agent_server)
+        tools.script_api.register_tools(agent_server)
+        
+        logger.info("已导入并注册工具模块")
+    except ImportError as e:
+        logger.warning(f"无法导入工具模块: {e}")
+    except Exception as e:
+        logger.error(f"注册工具时出错: {e}", exc_info=True)
     
-    return mcp_server
+    try:
+        # 导入资源
+        import resources.player
+        import resources.world
+        
+        # 注册资源
+        resources.player.register_resources(agent_server)
+        resources.world.register_resources(agent_server)
+        
+        logger.info("已导入并注册资源模块")
+    except ImportError as e:
+        logger.warning(f"无法导入资源模块: {e}")
+    except Exception as e:
+        logger.error(f"注册资源时出错: {e}", exc_info=True)
+    
+    return agent_server
+
+async def run_frontend_server():
+    """启动前端MCP服务器作为子进程"""
+    logger.info("启动前端MCP服务器...")
+    
+    # 获取当前脚本的目录
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    frontend_script = os.path.join(script_dir, "mcp_frontend_server.py")
+    
+    # 启动前端服务器进程
+    process = await asyncio.create_subprocess_exec(
+        sys.executable, frontend_script,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    
+    logger.info(f"前端MCP服务器已启动，PID: {process.pid}")
+    
+    # 设置通信处理
+    async def handle_frontend_output():
+        while True:
+            line = await process.stdout.readline()
+            if not line:
+                break
+                
+            try:
+                # 解析前端发送的请求
+                message = json.loads(line.decode("utf-8"))
+                client_id = message.get("client_id", "frontend")
+                request = message.get("request", {})
+                
+                # 处理请求
+                logger.debug(f"收到前端请求: {request}")
+                # 这里可以处理前端请求
+                
+                # 发送响应
+                response = {"client_id": client_id, "response": {"success": True}}
+                process.stdin.write((json.dumps(response) + "\n").encode("utf-8"))
+                await process.stdin.drain()
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"无效的前端消息: {e}")
+    
+    # 监听前端错误输出
+    async def handle_frontend_error():
+        while True:
+            line = await process.stderr.readline()
+            if not line:
+                break
+            logger.error(f"前端错误: {line.decode('utf-8').strip()}")
+    
+    # 启动通信处理任务
+    asyncio.create_task(handle_frontend_output())
+    asyncio.create_task(handle_frontend_error())
+    
+    return process
 
 async def run_both_servers(debug_mode=False):
-    """运行Minecraft服务器和MCP服务器"""
+    """运行Minecraft服务器和Agent服务器"""
+    # 设置Minecraft服务器
+    minecraft_server = await setup_minecraft_server(debug_mode)
+    
+    # 设置Agent服务器
+    agent_server = setup_agent_server(minecraft_server)
+    
+    # 启动Minecraft服务器
+    await minecraft_server.start()
+    
+    # 运行Agent服务器
+    await agent_server.run(transport="stdio")
+
+async def run_backend_server(debug_mode=False):
+    """运行后端服务器，与前端通信"""
+    # 设置Minecraft服务器
+    minecraft_server = await setup_minecraft_server(debug_mode)
+    
+    # 设置Agent服务器
+    agent_server = setup_agent_server(minecraft_server)
+    
+    # 启动Minecraft服务器
+    await minecraft_server.start()
+    
+    # 启动前端服务器
+    frontend_process = await run_frontend_server()
+    
     try:
-        # 启动Minecraft服务器
-        minecraft_server = await setup_minecraft_server(debug_mode)
-        
-        # 创建MCP服务器并设置相互引用
-        mcp_server = setup_mcp_server(minecraft_server)
-        # 确保minecraft_server引用mcp_server
-        minecraft_server.mcp_server = mcp_server
-        
-        # 在单独的任务中启动MCP服务器
-        mcp_task = asyncio.create_task(mcp_server.run(transport="stdio"))
-        
-        # 启动Minecraft服务器
-        minecraft_task = asyncio.create_task(minecraft_server.start())
-        
-        # 等待两个服务器完成
-        await asyncio.gather(mcp_task, minecraft_task)
-    except KeyboardInterrupt:
-        logger.info("正在关闭服务器")
-    except Exception as e:
-        logger.error(f"运行服务器时出错: {e}", exc_info=True)
-    finally:
-        # 清理资源
-        if 'minecraft_server' in locals():
-            await minecraft_server.stop()
-        if 'mcp_task' in locals() and not mcp_task.done():
-            mcp_task.cancel()
+        # 处理前端请求
+        while True:
+            # 从stdin读取前端请求
+            line = await asyncio.get_event_loop().run_in_executor(None, sys.stdin.readline)
+            if not line:
+                break
+                
             try:
-                await mcp_task
-            except asyncio.CancelledError:
-                pass
+                # 解析请求
+                message = json.loads(line)
+                client_id = message.get("client_id", "frontend")
+                request = message.get("request", {})
+                
+                # 处理请求
+                response = await agent_server.handle_agent_request(client_id, request)
+                
+                # 发送响应
+                response_message = {
+                    "client_id": client_id,
+                    "response": response
+                }
+                sys.stdout.write(json.dumps(response_message) + "\n")
+                sys.stdout.flush()
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"无效的请求: {e}")
+                sys.stdout.write(json.dumps({
+                    "client_id": "error",
+                    "response": {
+                        "error": {
+                            "code": "invalid_request",
+                            "message": f"Invalid JSON: {str(e)}"
+                        }
+                    }
+                }) + "\n")
+                sys.stdout.flush()
+            except Exception as e:
+                logger.error(f"处理请求时出错: {e}", exc_info=True)
+                sys.stdout.write(json.dumps({
+                    "client_id": "error",
+                    "response": {
+                        "error": {
+                            "code": "server_error",
+                            "message": str(e)
+                        }
+                    }
+                }) + "\n")
+                sys.stdout.flush()
+                
+    finally:
+        # 关闭前端进程
+        if frontend_process.returncode is None:
+            frontend_process.terminate()
+            await frontend_process.wait()
+        
+        # 关闭服务器
+        await minecraft_server.stop()
+        await agent_server.close_all_conversations()
 
 if __name__ == "__main__":
     # 解析命令行参数
     args = parse_args()
     
-    # 设置日志文件
+    # 设置文件日志
     log_file = setup_file_logging()
     
-    # 打印启动信息
-    logger.info(f"正在启动Minecraft MCP服务器...")
-    logger.info(f"调试模式: {'启用' if args.debug else '禁用'}")
-    logger.info(f"服务器模式: {'完整模式' if args.full else 'MCP模式'}")
-    
-    if args.full:
-        # 运行两个服务器（Minecraft和MCP）
-        asyncio.run(run_both_servers(debug_mode=args.debug))
-    else:
-        # 用于客户端测试，我们只运行MCP服务器
-        # 使用stdio传输（无Minecraft服务器集成）
-        mcp_server = setup_mcp_server()
-        asyncio.run(mcp_server.run(transport="stdio")) 
+    try:
+        if args.frontend:
+            # 仅启动前端MCP服务器
+            logger.info("仅启动前端MCP服务器")
+            import mcp_frontend_server
+        else:
+            # 运行后端服务器
+            logger.info("启动后端服务器")
+            asyncio.run(run_backend_server(args.debug))
+    except KeyboardInterrupt:
+        logger.info("接收到中断信号，正在关闭服务器...")
+    except Exception as e:
+        logger.critical(f"服务器运行时出错: {e}", exc_info=True)
+        sys.exit(1)

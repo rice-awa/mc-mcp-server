@@ -6,19 +6,19 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Any, Callable, Optional, Union
 
-logger = logging.getLogger("mc-mcp-server")
+logger = logging.getLogger("mc-agent-server")
 
-class MCPServer:
+class AgentServer:
     """
-    MCP (Model Context Protocol) server implementation.
+    Agent server implementation.
     
-    This class manages MCP resources and tools, providing a bridge between
+    This class manages Agent resources and tools, providing a bridge between
     the Minecraft WebSocket server and LLM APIs.
     """
     
     def __init__(self, config, minecraft_server=None):
         """
-        Initialize the MCP server.
+        Initialize the Agent server.
         
         Args:
             config (dict): Server configuration
@@ -26,9 +26,9 @@ class MCPServer:
         """
         self.config = config
         self.minecraft_server = minecraft_server
-        self.name = config.get("mcp", {}).get("name", "Minecraft Assistant")
-        self.description = config.get("mcp", {}).get("description", "")
-        self.version = config.get("mcp", {}).get("version", "1.0.0")
+        self.name = config.get("agent", {}).get("name", "Minecraft Assistant")
+        self.description = config.get("agent", {}).get("description", "")
+        self.version = config.get("agent", {}).get("version", "1.0.0")
         
         # Store registered resources and tools
         self.resources = {}
@@ -59,18 +59,18 @@ class MCPServer:
         self.tools[name] = tool_func
         logger.info(f"Registered tool: {name}")
     
-    async def handle_mcp_request(self, client_id: str, request: Dict[str, Any]) -> Dict[str, Any]:
+    async def handle_agent_request(self, client_id: str, request: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Handle an MCP request.
+        Handle an Agent request.
         
         Args:
             client_id (str): Client identifier
-            request (dict): MCP request object
+            request (dict): Agent request object
             
         Returns:
-            dict: MCP response object
+            dict: Agent response object
         """
-        logger.debug(f"Handling MCP request from client {client_id}: {request}")
+        logger.debug(f"Handling Agent request from client {client_id}: {request}")
         
         # Extract request type and data
         request_type = request.get("type", "")
@@ -86,7 +86,7 @@ class MCPServer:
             return await self._handle_tool_request(client_id, request)
         else:
             # Unknown request type
-            logger.warning(f"Unknown MCP request type: {request_type}")
+            logger.warning(f"Unknown Agent request type: {request_type}")
             return {
                 "error": {
                     "code": "invalid_request",
@@ -96,14 +96,14 @@ class MCPServer:
     
     async def _handle_prompt_request(self, client_id: str, request: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Handle an MCP prompt request.
+        Handle an Agent prompt request.
         
         Args:
             client_id (str): Client identifier
-            request (dict): MCP prompt request
+            request (dict): Agent prompt request
             
         Returns:
-            dict: MCP response object
+            dict: Agent response object
         """
         from .utils.llm import create_conversation
         
@@ -155,14 +155,14 @@ class MCPServer:
     
     async def _handle_resource_request(self, client_id: str, request: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Handle an MCP resource request.
+        Handle an Agent resource request.
         
         Args:
             client_id (str): Client identifier
-            request (dict): MCP resource request
+            request (dict): Agent resource request
             
         Returns:
-            dict: MCP response object
+            dict: Agent response object
         """
         uri = request.get("uri", "")
         if not uri:
@@ -204,14 +204,14 @@ class MCPServer:
     
     async def _handle_tool_request(self, client_id: str, request: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Handle an MCP tool request.
+        Handle an Agent tool request.
         
         Args:
             client_id (str): Client identifier
-            request (dict): MCP tool request
+            request (dict): Agent tool request
             
         Returns:
-            dict: MCP response object
+            dict: Agent response object
         """
         tool_name = request.get("name", "")
         if not tool_name:
@@ -298,7 +298,7 @@ class MCPServer:
     
     async def run(self, transport="stdio"):
         """
-        启动MCP服务器。
+        启动Agent服务器。
 
         Args:
             transport (str): 传输方式，目前支持"stdio"
@@ -306,7 +306,7 @@ class MCPServer:
         Raises:
             ValueError: 如果传输方式不支持
         """
-        logger.info(f"启动MCP服务器，使用 {transport} 传输")
+        logger.info(f"启动Agent服务器，使用 {transport} 传输")
         
         if transport == "stdio":
             # 使用标准输入/输出进行通信
@@ -315,7 +315,7 @@ class MCPServer:
             raise ValueError(f"不支持的传输方式: {transport}")
     
     async def _run_stdio(self):
-        """使用标准输入/输出运行MCP服务器"""
+        """使用标准输入/输出运行Agent服务器"""
         import sys
         import json
         
@@ -346,7 +346,7 @@ class MCPServer:
                     request = json.loads(line)
                     
                     # 处理请求
-                    response = await self.handle_mcp_request(client_id, request)
+                    response = await self.handle_agent_request(client_id, request)
                     
                     # 发送响应
                     print(json.dumps(response), flush=True)

@@ -69,7 +69,7 @@ async def process_messages(client_id: str, websocket: websockets.WebSocketServer
 ```python
 import logging
 
-logger = logging.getLogger("mc-mcp-server")
+logger = logging.getLogger("mc-agent-server")
 
 # 配置日志
 def setup_logging():

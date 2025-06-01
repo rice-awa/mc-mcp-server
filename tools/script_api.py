@@ -2,7 +2,7 @@ import logging
 import json
 from typing import Dict, Any, Optional, List
 
-logger = logging.getLogger("mc-mcp-server")
+logger = logging.getLogger("mc-agent-server")
 
 # Global MCP server instance
 # This will be set when the MCP server is initialized

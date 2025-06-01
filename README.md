@@ -45,7 +45,7 @@ mc-mcp-server/
 ├── server/
 │   ├── __init__.py
 │   ├── mc_server.py       # WebSocket服务器实现
-│   ├── mcp_server.py      # MCP服务器实现
+│   ├── agent_server.py      # Agent服务器实现
 │   └── utils/
 │       ├── __init__.py
 │       ├── auth.py        # 认证相关工具

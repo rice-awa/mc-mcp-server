@@ -8,9 +8,9 @@
     "max_size": 10485760,
     "max_queue": 64
   },
-  "mcp": {
+  "agent": {
     "name": "Minecraft Assistant",
-    "description": "A Minecraft assistant that can interact with the game through MCP",
+    "description": "A Minecraft assistant that can interact with the game through Agent server",
     "version": "1.0.0"
   },
   "llm": {

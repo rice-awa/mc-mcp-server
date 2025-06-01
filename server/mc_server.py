@@ -8,7 +8,7 @@ import os
 from .utils.logging import setup_logging
 
 # Logger instance
-logger = logging.getLogger("mc-mcp-server")
+logger = logging.getLogger("mc-agent-server")
 
 class MinecraftServer:
     """
@@ -66,6 +66,7 @@ class MinecraftServer:
         self.connection_last_activity = {}  # 跟踪每个连接的最后活动时间
         self.health_check_task = None
         self.running = False
+        self.agent_server = None
     
     def _setup_packet_logging(self):
         """设置数据包日志记录"""

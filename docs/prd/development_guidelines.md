@@ -97,8 +97,6 @@ websocket_config = {
     'close_timeout': 15,       # 关闭超时（秒）
     'max_size': 10 * 1024 * 1024,  # 最大消息大小（10MB）
     'max_queue': 32,           # 最大队列长度
-    'read_limit': 65536,       # 读取限制
-    'write_limit': 65536,      # 写入限制
 }
 
 async def start_server(ip: str, port: int):

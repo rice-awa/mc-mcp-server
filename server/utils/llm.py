@@ -226,7 +226,7 @@ async def create_conversation(config):
     """
     api_url = config.get("llm", {}).get("api_url", os.getenv("API_URL"))
     api_key = os.getenv("API_KEY")
-    model = config.get("llm", {}).get("model", "deepseek-ai/DeepSeek-R1")
+    model = config.get("llm", {}).get("model", "deepseek-chat")
     system_prompt = config.get("llm", {}).get("system_prompt", "")
     enable_history = config.get("llm", {}).get("enable_history", True)
     

@@ -1,3 +1,6 @@
 /__pycache__
+/resources/__pycache__
+server/__pycache__
+tools/__pycache__
 *.log
 *.pyc

@@ -88,7 +88,11 @@ mc-mcp-server/
 
 3. 启动MC服务器:
    ```
-   python mc_server.py
+   # 标准模式
+   python main.py --full
+   
+   # 调试模式（记录WebSocket数据包）
+   python main.py --full --debug
    ```
 
 4. 启动AIAgent:
@@ -97,6 +101,17 @@ mc-mcp-server/
    ```
 
 5. 连接Minecraft客户端到MC服务器(默认端口8080)
+
+## 调试与日志
+
+服务器提供了调试模式和增强的日志功能，帮助开发者诊断和解决问题：
+
+- **调试模式**：使用 `--debug` 参数启动服务器，记录所有WebSocket数据包
+- **日志文件**：日志自动保存在 `logs` 目录下
+  - 主服务器日志：`logs/server_YYYYMMDD-HHMMSS.log`
+  - WebSocket数据包日志：`logs/packets/packets_YYYYMMDD-HHMMSS.log`
+
+详细信息请参阅 [调试模式和日志功能文档](/docs/DEBUG_MODE.md)。
 
 ## 贡献指南
 

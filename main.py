@@ -8,6 +8,8 @@ import os
 import json
 import asyncio
 import logging
+import argparse
+import sys
 from dotenv import load_dotenv
 
 from server.mc_server import MinecraftServer
@@ -36,37 +38,89 @@ def load_config():
             "logging": {"level": "INFO"}
         }
 
+# 解析命令行参数
+def parse_args():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description="Minecraft MCP 服务器")
+    parser.add_argument("--full", action="store_true", help="运行完整服务器（Minecraft和MCP）")
+    parser.add_argument("--debug", action="store_true", help="启用调试模式，记录WebSocket数据包")
+    return parser.parse_args()
+
+# 设置日志文件
+def setup_file_logging():
+    """设置日志文件"""
+    # 使用增强的日志工具
+    from server.utils.logging import setup_daily_rotating_file_handler
+    
+    # 设置日志目录
+    log_dir = "logs"
+    
+    # 为根记录器添加文件处理程序
+    root_logger = logging.getLogger()
+    log_file = setup_daily_rotating_file_handler(root_logger, log_dir, "server")
+    
+    logger.info(f"日志将保存到: {log_file}")
+    return log_file
+
 # Minecraft消息处理函数
-async def handle_minecraft_message(client_id, event_type, message):
-    """处理来自Minecraft的消息"""
+async def handle_minecraft_message(client_id, event_type, message, minecraft_server=None):
+    """处理来自Minecraft的消息
+    
+    Args:
+        client_id (str): 客户端标识符
+        event_type (str): 事件类型
+        message (dict): 消息内容
+        minecraft_server (MinecraftServer, optional): Minecraft服务器实例
+    """
     if event_type == "PlayerMessage":
         sender = message.get("body", {}).get("sender", "")
         content = message.get("body", {}).get("message", "")
         logger.info(f"收到玩家 {sender} 的消息: {content}")
         
         # 处理以特定前缀开头的聊天消息
-        if content.startswith("#"):
+        if content.startswith("#") and minecraft_server:
             # 命令消息
             command = content[1:].strip()
             if command.startswith("登录"):
                 # 登录命令
-                pass
+                await minecraft_server.send_game_message(client_id, f"收到登录请求，用户: {sender}")
+                # 这里可以添加登录逻辑
             elif command.startswith("GPT"):
                 # GPT聊天命令
-                await self.run_command()
-                pass
+                query = command[3:].strip()
+                if query:
+                    pass
+ 
             elif command.startswith("运行命令"):
-                # 运行命令
+                # 运行Minecraft命令
+                mc_command = command[4:].strip()
+                if mc_command:
+                    logger.info(f"执行Minecraft命令: {mc_command}")
+                    await minecraft_server.run_command(client_id, mc_command)
+                else:
+                    await minecraft_server.send_game_message(client_id, "请提供要运行的命令")
+            else:
+                # 未知命令
+                await minecraft_server.send_game_message(client_id, f"未知命令: {command}")
 
-                pass
-
-async def setup_minecraft_server():
+async def setup_minecraft_server(debug_mode=False):
     """设置并返回Minecraft服务器实例"""
     # 加载配置
     config = load_config()
     
+    # 创建一个临时处理函数，稍后会被更新
+    temp_handler = lambda client_id, event_type, message: None
+    
     # 创建Minecraft服务器
-    minecraft_server = MinecraftServer(config, handle_minecraft_message)
+    minecraft_server = MinecraftServer(config, temp_handler, debug_mode=debug_mode)
+    
+    # 创建一个包含minecraft_server的闭包函数
+    async def handler_with_server(client_id, event_type, message):
+        await handle_minecraft_message(client_id, event_type, message, minecraft_server)
+    
+    # 更新处理函数
+    minecraft_server.event_handler = handler_with_server
+    
     return minecraft_server
 
 def setup_mcp_server(minecraft_server=None):
@@ -90,11 +144,11 @@ def setup_mcp_server(minecraft_server=None):
     
     return mcp_server
 
-async def run_both_servers():
+async def run_both_servers(debug_mode=False):
     """运行Minecraft服务器和MCP服务器"""
     try:
         # 启动Minecraft服务器
-        minecraft_server = await setup_minecraft_server()
+        minecraft_server = await setup_minecraft_server(debug_mode)
         
         # 创建MCP服务器
         mcp_server = setup_mcp_server(minecraft_server)
@@ -123,11 +177,20 @@ async def run_both_servers():
                 pass
 
 if __name__ == "__main__":
-    # 检查是否应该运行两个服务器或仅运行MCP服务器
-    import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "--full":
+    # 解析命令行参数
+    args = parse_args()
+    
+    # 设置日志文件
+    log_file = setup_file_logging()
+    
+    # 打印启动信息
+    logger.info(f"正在启动Minecraft MCP服务器...")
+    logger.info(f"调试模式: {'启用' if args.debug else '禁用'}")
+    logger.info(f"服务器模式: {'完整模式' if args.full else 'MCP模式'}")
+    
+    if args.full:
         # 运行两个服务器（Minecraft和MCP）
-        asyncio.run(run_both_servers())
+        asyncio.run(run_both_servers(debug_mode=args.debug))
     else:
         # 用于客户端测试，我们只运行MCP服务器
         # 使用stdio传输（无Minecraft服务器集成）

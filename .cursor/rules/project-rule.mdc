@@ -1,5 +1,5 @@
 ---
-description: 项目的自述文档，介绍项目
+description: 项目的自述文档，用于了解项目
 globs: 
 alwaysApply: false
 ---
@@ -12,7 +12,7 @@ Minecraft MCP服务器是一个集成系统，由两个核心组件组成：AIAg
 ## 文档目录
 
 ### 1. 项目需求文档
-
+ 
 - [项目需求描述文档 (PRD)](mdc:docs/prd/pr.md) - 详细描述项目的核心功能、请求路径、用户交互流程和验收标准
 
 ### 2. 技术规范文档

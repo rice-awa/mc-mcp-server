@@ -280,22 +280,92 @@ class MCPServer:
         
         Args:
             uri (str): URI to extract parameters from
-            pattern (str): Pattern with parameter placeholders
+            pattern (str): Pattern to match against
             
         Returns:
             dict: Extracted parameters
         """
-        params = {}
-        uri_parts = uri.split("/")
+        parts = uri.split("/")
         pattern_parts = pattern.split("/")
         
+        params = {}
         for i, pattern_part in enumerate(pattern_parts):
-            if pattern_part.startswith("{") and pattern_part.endswith("}"):
-                # Extract parameter name
+            if i < len(parts) and pattern_part.startswith("{") and pattern_part.endswith("}"):
                 param_name = pattern_part[1:-1]
-                params[param_name] = uri_parts[i]
+                params[param_name] = parts[i]
         
         return params
+    
+    async def run(self, transport="stdio"):
+        """
+        启动MCP服务器。
+
+        Args:
+            transport (str): 传输方式，目前支持"stdio"
+            
+        Raises:
+            ValueError: 如果传输方式不支持
+        """
+        logger.info(f"启动MCP服务器，使用 {transport} 传输")
+        
+        if transport == "stdio":
+            # 使用标准输入/输出进行通信
+            await self._run_stdio()
+        else:
+            raise ValueError(f"不支持的传输方式: {transport}")
+    
+    async def _run_stdio(self):
+        """使用标准输入/输出运行MCP服务器"""
+        import sys
+        import json
+        
+        # 创建一个随机的客户端ID
+        import uuid
+        client_id = str(uuid.uuid4())
+        
+        # 发送欢迎消息
+        welcome_message = {
+            "type": "welcome",
+            "server": self.name,
+            "version": self.version,
+            "client_id": client_id
+        }
+        print(json.dumps(welcome_message), flush=True)
+        
+        # 处理标准输入中的消息
+        while True:
+            try:
+                # 读取一行输入
+                line = await asyncio.get_event_loop().run_in_executor(None, sys.stdin.readline)
+                if not line:
+                    # EOF，退出循环
+                    break
+                
+                # 解析JSON请求
+                try:
+                    request = json.loads(line)
+                    
+                    # 处理请求
+                    response = await self.handle_mcp_request(client_id, request)
+                    
+                    # 发送响应
+                    print(json.dumps(response), flush=True)
+                except json.JSONDecodeError:
+                    logger.error(f"无效的JSON请求: {line}")
+                    print(json.dumps({
+                        "error": {
+                            "code": "invalid_request",
+                            "message": "无效的JSON请求"
+                        }
+                    }), flush=True)
+            except Exception as e:
+                logger.error(f"处理请求时出错: {e}", exc_info=True)
+                print(json.dumps({
+                    "error": {
+                        "code": "server_error",
+                        "message": str(e)
+                    }
+                }), flush=True)
     
     async def close_conversation(self, client_id: str):
         """

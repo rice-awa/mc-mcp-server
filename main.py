@@ -37,9 +37,9 @@ def load_config():
         }
 
 # Minecraft消息处理函数
-async def handle_minecraft_message(client_id, message_type, message):
+async def handle_minecraft_message(client_id, event_type, message):
     """处理来自Minecraft的消息"""
-    if message_type == "PlayerMessage":
+    if event_type == "PlayerMessage":
         sender = message.get("body", {}).get("sender", "")
         content = message.get("body", {}).get("message", "")
         logger.info(f"收到玩家 {sender} 的消息: {content}")
@@ -53,9 +53,11 @@ async def handle_minecraft_message(client_id, message_type, message):
                 pass
             elif command.startswith("GPT"):
                 # GPT聊天命令
+                await self.run_command()
                 pass
             elif command.startswith("运行命令"):
                 # 运行命令
+
                 pass
 
 async def setup_minecraft_server():

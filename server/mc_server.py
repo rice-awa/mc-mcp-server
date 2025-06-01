@@ -14,14 +14,14 @@ class MinecraftServer:
     处理与Minecraft客户端的连接并处理消息。
     """
     
-    def __init__(self, config, message_handler=None):
+    def __init__(self, config, event_handler=None):
         """
         初始化Minecraft WebSocket服务器。
         
-        参数:
+        Args:
             config (dict): 服务器配置
-            message_handler (callable, optional): 处理传入消息的函数。
-                应接受client_id，message_type和message作为参数。
+            event_handler (callable, optional): 处理传入事件的函数。
+                应接受client_id，event_type和message作为参数。
         """
         self.config = config
         
@@ -46,7 +46,7 @@ class MinecraftServer:
         logger.info(f"WebSocket服务器初始化 - 主机: {self.host}, 端口: {self.port}")
         logger.info(f"WebSocket配置: {self.websocket_config}")
         
-        self.message_handler = message_handler
+        self.event_handler = event_handler
         self.server = None
         self.active_connections = {}
     
@@ -81,7 +81,7 @@ class MinecraftServer:
         """
         处理新的WebSocket连接。
         
-        参数:
+        Args:
             websocket: WebSocket连接对象
         """
         client_id = str(uuid.uuid4())
@@ -116,7 +116,7 @@ class MinecraftServer:
         """
         处理来自客户端的传入消息。
         
-        参数:
+        Args:
             client_id (str): 客户端标识符
             websocket: WebSocket连接对象
         """
@@ -137,14 +137,14 @@ class MinecraftServer:
         """
         处理来自客户端的已解析消息。
         
-        参数:
+        Args:
             client_id (str): 客户端标识符
             data (dict): 已解析的消息数据
         """
         # 检查是否为玩家消息事件
         if "header" in data and data["header"].get("eventName") == "PlayerMessage":
-            if self.message_handler:
-                await self.message_handler(client_id, "PlayerMessage", data)
+            if self.event_handler:
+                await self.event_handler(client_id, "PlayerMessage", data)
             else:
                 # 玩家消息的默认处理
                 sender = data.get("body", {}).get("sender", "")
@@ -163,11 +163,11 @@ class MinecraftServer:
         """
         向客户端发送数据。
         
-        参数:
+        Args:
             client_id (str): 客户端标识符
             data (dict): 要发送的数据
             
-        返回:
+        Returns:
             bool: 如果数据成功发送则为True，否则为False
         """
         websocket = self.active_connections.get(client_id)
@@ -188,10 +188,10 @@ class MinecraftServer:
         """
         向所有已连接的客户端广播消息。
         
-        参数:
+        Args:
             message (dict): 要广播的消息
             
-        返回:
+        Returns:
             int: 接收到消息的客户端数量
         """
         sent_count = 0
@@ -204,11 +204,11 @@ class MinecraftServer:
         """
         订阅Minecraft事件。
         
-        参数:
+        Args:
             client_id (str): 客户端标识符
             event_name (str): 要订阅的事件名称
             
-        返回:
+        Returns:
             bool: 如果订阅成功则为True，否则为False
         """
         subscription_message = {
@@ -229,11 +229,11 @@ class MinecraftServer:
         """
         运行Minecraft命令。
         
-        参数:
+        Args:
             client_id (str): 客户端标识符
             command (str): 要运行的命令
             
-        返回:
+        Returns:
             bool: 如果命令成功发送则为True，否则为False
         """
         command_message = {
@@ -258,11 +258,11 @@ class MinecraftServer:
         """
         向游戏内发送聊天消息。
         
-        参数:
+        Args:
             client_id (str): 客户端标识符
             message (str): 消息内容
             
-        返回:
+        Returns:
             bool: 如果消息成功发送则为True，否则为False
         """
         # 转义特殊字符
@@ -275,12 +275,12 @@ class MinecraftServer:
         """
         向游戏发送脚本事件。
         
-        参数:
+        Args:
             client_id (str): 客户端标识符
             event_id (str): 脚本事件标识符
             content (str): 事件内容
             
-        返回:
+        Returns:
             bool: 如果事件成功发送则为True，否则为False
         """
         command = f"scriptevent {event_id} {content}"
@@ -290,10 +290,10 @@ class MinecraftServer:
         """
         为新客户端创建欢迎消息。
         
-        参数:
+        Args:
             client_id (str): 客户端标识符
             
-        返回:
+        Returns:
             dict: 欢迎消息
         """
         welcome_text = f"""
@@ -317,7 +317,7 @@ async def run_server(config):
     """
     运行Minecraft WebSocket服务器。
     
-    参数:
+    Args:
         config (dict): 服务器配置
     """
     server = MinecraftServer(config)

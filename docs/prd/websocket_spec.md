@@ -174,9 +174,9 @@ ws://{server_ip}:{port}
 {
   "body": {
     "origin": {
-      "type": "script"
+      "type": "player"
     },
-    "commandLine": "scriptapi 请求类型 参数",
+    "commandLine": "scriptevent 命名空间 参数",
     "version": 17039360
   },
   "header": {

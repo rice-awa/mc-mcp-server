@@ -71,6 +71,7 @@ minecraft://{resource_type}/{resource_id}
 
 ## MCP工具定义
 
+
 ### 1. 命令工具
 
 允许LLM通过脚本API执行Minecraft命令：
@@ -78,7 +79,16 @@ minecraft://{resource_type}/{resource_id}
 ```python
 @mcp.tool()
 def run_command(command: str) -> str:
-    """在Minecraft中执行命令"""
+    """在Minecraft中执行命令
+    
+    此函数允许执行Minecraft命令，并返回命令的执行结果。
+    
+    Args:
+        command (str): 要执行的Minecraft命令字符串，不包含前导斜杠
+    
+    Returns:
+        str: 命令执行后的结果消息
+    """
     # 通过MC服务器和脚本API执行命令
     return "命令执行结果"
 ```
@@ -90,7 +100,16 @@ def run_command(command: str) -> str:
 ```python
 @mcp.tool()
 def send_message(message: str) -> None:
-    """向游戏内发送消息"""
+    """向游戏内发送消息
+    
+    将指定消息发送到Minecraft游戏内聊天频道，所有玩家可见。
+    
+    Args:
+        message (str): 要发送到游戏内的文本消息，支持Minecraft格式代码
+    
+    Returns:
+        None: 此函数没有返回值
+    """
     # 通过MC服务器和脚本API发送消息
 ```
 
@@ -101,7 +120,17 @@ def send_message(message: str) -> None:
 ```python
 @mcp.tool()
 def run_script(script_id: str, content: str) -> None:
-    """执行脚本事件"""
+    """执行脚本事件
+    
+    执行预定义的脚本事件，允许LLM触发复杂的游戏内交互。
+    
+    Args:
+        script_id (str): 要执行的脚本标识符
+        content (str): 提供给脚本的JSON格式参数字符串
+    
+    Returns:
+        None: 此函数没有返回值
+    """
     # 通过MC服务器和脚本API执行脚本
 ```
 
@@ -112,7 +141,16 @@ def run_script(script_id: str, content: str) -> None:
 ```python
 @mcp.tool()
 def get_game_info(info_type: str) -> dict:
-    """获取游戏内信息"""
+    """获取游戏内信息
+    
+    获取特定类型的游戏内信息，如玩家状态、世界信息等。
+    
+    Args:
+        info_type (str): 要获取的信息类型，如'player_stats'、'world_time'等
+    
+    Returns:
+        dict: 包含请求信息的字典，格式根据info_type不同而变化
+    """
     # 通过MC服务器和脚本API获取游戏信息
     return {"type": info_type, "data": {...}}
 ```
@@ -230,11 +268,31 @@ mcp = FastMCP("Minecraft Assistant")
 # 添加资源和工具
 @mcp.resource("minecraft://player/{player_name}")
 def get_player(player_name: str) -> dict:
+    """获取指定玩家的信息
+    
+    通过服务器脚本API获取特定玩家的详细信息。
+    
+    Args:
+        player_name (str): 要查询信息的玩家名称，使用'current'表示当前交互的玩家
+    
+    Returns:
+        dict: 包含玩家信息的字典，包括生命值、位置、物品栏等信息
+    """
     # 通过MC服务器和脚本API获取玩家信息
     return {"name": player_name, "health": 20, "level": 30}
 
 @mcp.tool()
 def run_command(command: str) -> str:
+    """在Minecraft中执行命令
+    
+    执行Minecraft命令并返回结果。
+    
+    Args:
+        command (str): 要执行的Minecraft命令字符串，不包含前导斜杠
+    
+    Returns:
+        str: 命令执行后的结果消息
+    """
     # 通过MC服务器和脚本API执行命令
     return "命令执行结果"
 ```
@@ -242,7 +300,18 @@ def run_command(command: str) -> str:
 ### 2. MC服务器集成
 
 ```python
-async def handle_mcp_request(prompt, conversation):
+async def handle_mcp_request(prompt: str, conversation: list) -> dict:
+    """处理来自游戏内或外部客户端的MCP请求
+    
+    创建并发送MCP请求到AIAgent，然后处理响应。
+    
+    Args:
+        prompt (str): 用户/玩家的提问或请求文本
+        conversation (list): 之前的对话历史，用于维持上下文连续性
+    
+    Returns:
+        dict: AIAgent的响应，包含文本内容和可能的工具调用结果
+    """
     # 创建MCP请求
     mcp_request = {
         "prompt": prompt,
@@ -255,9 +324,19 @@ async def handle_mcp_request(prompt, conversation):
     
     # 处理响应
     return response
-
+    
 # WebSocket消息处理
-async def handle_websocket_message(message):
+async def handle_websocket_message(message: dict) -> None:
+    """处理来自Minecraft客户端的WebSocket消息
+    
+    解析从游戏内发送的WebSocket消息，识别聊天命令并处理MCP请求。
+    
+    Args:
+        message (dict): 来自WebSocket连接的消息对象，包含消息类型、玩家和内容等信息
+    
+    Returns:
+        None: 此函数不返回值，但会通过WebSocket将响应发送回游戏内
+    """
     if is_chat_command(message):
         # 处理游戏内聊天命令
         response = await handle_mcp_request(extract_prompt(message), conversation)

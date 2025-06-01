@@ -18,7 +18,7 @@ Minecraft MCP服务器是一个集成系统，由两个核心组件组成：AIAg
 
 ### 3. 外部参考文档
 
-- [MCP Python SDK](../MCP_PYTHON_SDK.md) - Model Context Protocol的Python实现参考
+- [MCP Python SDK](/docs/MCP_PYTHON_SDK.md) - Model Context Protocol的Python实现参考
 - [Minecraft脚本API文档](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/) - Minecraft脚本API官方文档
 
 ## 系统组件
@@ -69,7 +69,3 @@ Minecraft MCP服务器是一个集成系统，由两个核心组件组成：AIAg
 3. 更新相关文档以反映代码变更
 
 ## 版本历史
-
-- v0.1: 基础WebSocket服务器和LLM集成
-- v0.2: 完善命令系统和安全认证
-- v0.3: 脚本API集成和AIAgent实现

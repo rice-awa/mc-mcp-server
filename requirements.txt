@@ -1,0 +1,8 @@
+asyncio
+websockets
+uuid
+mcp
+python-dotenv
+fastapi
+uvicorn
+pydantic

@@ -1,3 +1,5 @@
+# IMPORTANT 本文件仅供参考，里面的类不保证有效！！！
+
 import asyncio
 import json
 import os

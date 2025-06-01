@@ -38,6 +38,42 @@ Minecraft MCP服务器是一个集成系统，由两个核心组件组成：AIAg
 3. 查看[WebSocket通信规范](/docs/prd/websocket_spec.md)了解通信协议和脚本API集成
 4. 学习[MCP集成规范](/docs/prd/mcp_integration.md)了解LLM集成方式和请求路径
 
+## 项目结构规范
+
+```
+mc-mcp-server/
+├── server/
+│   ├── __init__.py
+│   ├── mc_server.py       # WebSocket服务器实现
+│   ├── mcp_server.py      # MCP服务器实现
+│   └── utils/
+│       ├── __init__.py
+│       ├── auth.py        # 认证相关工具
+│       ├── llm.py         # 大语言模型调用工具
+│       └── logging.py     # 日志工具
+│
+├── resources/             # MCP资源定义
+│   ├── __init__.py
+│   ├── player.py
+│   └── world.py
+├── tools/                 # MCP工具定义
+│   ├── __init__.py
+│   ├── commands.py
+│   └── messages.py
+├── config/                # 配置文件
+│   ├── default.json
+│   └── production.json
+├── tests/                 # 测试目录
+│   ├── __init__.py
+│   ├── test_mc_server.py
+│   └── test_mcp_server.py
+├── docs/                  # 文档目录
+├── main.py                # 主入口文件
+├── requirements.txt       # 依赖声明
+└── README.md              # 项目说明
+
+```
+
 ## 开发指南
 
 1. 安装依赖:

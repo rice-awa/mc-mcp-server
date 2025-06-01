@@ -78,7 +78,7 @@ class MinecraftServer:
             await self.server.wait_closed()
             logger.info("WebSocket服务器已停止")
     
-    async def handle_connection(self, websocket, path):
+    async def handle_connection(self, websocket):
         """
         Handle a new WebSocket connection.
         

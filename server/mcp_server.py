@@ -386,4 +386,36 @@ class MCPServer:
         """
         for client_id in list(self.conversations.keys()):
             await self.close_conversation(client_id)
-        logger.info("Closed all conversations") 
+        logger.info("Closed all conversations")
+    
+    def get_tools(self) -> Dict[str, str]:
+        """
+        获取所有已注册的工具列表
+        
+        Returns:
+            dict: 工具名称到描述的映射
+        """
+        tool_info = {}
+        for name, tool_func in self.tools.items():
+            # 获取工具函数的文档字符串作为描述
+            description = tool_func.__doc__ or "无描述"
+            # 确保去除前导空格和缩进
+            description = "\n".join([line.strip() for line in description.split('\n')])
+            tool_info[name] = description
+        return tool_info
+    
+    def get_resources(self) -> Dict[str, str]:
+        """
+        获取所有已注册的资源列表
+        
+        Returns:
+            dict: 资源URI模式到描述的映射
+        """
+        resource_info = {}
+        for uri_pattern, resource_func in self.resources.items():
+            # 获取资源函数的文档字符串作为描述
+            description = resource_func.__doc__ or "无描述"
+            # 确保去除前导空格和缩进
+            description = "\n".join([line.strip() for line in description.split('\n')])
+            resource_info[uri_pattern] = description
+        return resource_info 

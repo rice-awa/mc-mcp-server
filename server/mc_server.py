@@ -130,23 +130,47 @@ class MinecraftServer:
         启动WebSocket服务器。
         """
         self.running = True
+        port_attempts = [self.port, 8081, 8082, 8083, 8084, 8085]  # 尝试多个端口
+        
+        success = False
+        for attempt_port in port_attempts:
+            try:
+                logger.info(f"尝试在端口 {attempt_port} 上启动WebSocket服务器...")
+                self.server = await websockets.serve(
+                    self.handle_connection,
+                    self.host,
+                    attempt_port,
+                    **self.websocket_config
+                )
+                # 更新当前使用的端口
+                self.port = attempt_port
+                logger.info(f"WebSocket服务器启动成功 - 监听地址: {self.host}:{self.port}")
+                logger.info(f"客户端可以使用 ws://{self.host}:{self.port} 进行连接")
+                
+                # 启动健康检查任务
+                self.health_check_task = asyncio.create_task(self._health_check_loop())
+                
+                success = True
+                break
+            except OSError as e:
+                if e.errno == 10048:  # 端口已被使用
+                    logger.warning(f"端口 {attempt_port} 已被占用，尝试下一个端口")
+                    if attempt_port == port_attempts[-1]:
+                        logger.error("所有端口尝试均失败，无法启动WebSocket服务器")
+                        raise
+                else:
+                    logger.error(f"WebSocket服务器启动失败: {e}", exc_info=True)
+                    raise
+            except Exception as e:
+                logger.error(f"WebSocket服务器启动失败: {e}", exc_info=True)
+                raise
+        
+        if not success:
+            logger.error("所有端口尝试均失败，无法启动WebSocket服务器")
+            raise OSError("无法找到可用端口启动WebSocket服务器")
+            
         try:
-            self.server = await websockets.serve(
-                self.handle_connection,
-                self.host,
-                self.port,
-                **self.websocket_config
-            )
-            logger.info(f"WebSocket服务器启动成功 - 监听地址: {self.host}:{self.port}")
-            logger.info(f"客户端可以使用 ws://{self.host}:{self.port} 进行连接")
-            
-            # 启动健康检查任务
-            self.health_check_task = asyncio.create_task(self._health_check_loop())
-            
             await self.server.wait_closed()
-        except Exception as e:
-            logger.error(f"WebSocket服务器启动失败: {e}", exc_info=True)
-            raise
         finally:
             self.running = False
     

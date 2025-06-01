@@ -6,9 +6,7 @@
     "ping_timeout": 15,
     "close_timeout": 15,
     "max_size": 10485760,
-    "max_queue": 64,
-    "read_limit": 65536,
-    "write_limit": 65536
+    "max_queue": 64
   },
   "mcp": {
     "name": "Minecraft Assistant",

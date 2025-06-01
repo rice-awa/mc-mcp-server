@@ -5,10 +5,6 @@ import websockets
 import logging
 from .utils.logging import setup_logging
 
-# Dictionary to store active connections
-# Format: {client_id: websocket}
-active_connections = {}
-
 # Logger instance
 logger = logging.getLogger("mc-mcp-server")
 
@@ -28,32 +24,50 @@ class MinecraftServer:
                 Should accept client_id, message_type, and message as arguments.
         """
         self.config = config
-        self.host = config.get("server", {}).get("host", "0.0.0.0")
-        self.port = config.get("server", {}).get("port", 8080)
+        
+        # 设置主机和端口
+        server_config = config.get("server", {})
+        
+        # 为测试目的，将host设置为localhost
+        # 注意：在生产环境中，可以使用config中的值，通常是"0.0.0.0"
+        #self.host = server_config.get("host", "0.0.0.0")
+        self.host = "localhost"  # 强制使用localhost以便本地测试
+        
+        self.port = server_config.get("port", 8080)
+        
+        # 设置WebSocket配置
         self.websocket_config = {
-            'ping_interval': config.get("server", {}).get("ping_interval", 30),
-            'ping_timeout': config.get("server", {}).get("ping_timeout", 15),
-            'close_timeout': config.get("server", {}).get("close_timeout", 15),
-            'max_size': config.get("server", {}).get("max_size", 10 * 1024 * 1024),
-            'max_queue': config.get("server", {}).get("max_queue", 32),
-            'read_limit': config.get("server", {}).get("read_limit", 65536),
-            'write_limit': config.get("server", {}).get("write_limit", 65536),
+            'ping_interval': server_config.get("ping_interval", 30),
+            'ping_timeout': server_config.get("ping_timeout", 15),
+            'close_timeout': server_config.get("close_timeout", 15),
+            'max_size': server_config.get("max_size", 10 * 1024 * 1024),
+            'max_queue': server_config.get("max_queue", 32),
         }
+        
+        logger.info(f"WebSocket服务器初始化 - 主机: {self.host}, 端口: {self.port}")
+        logger.info(f"WebSocket配置: {self.websocket_config}")
+        
         self.message_handler = message_handler
         self.server = None
+        self.active_connections = {}
     
     async def start(self):
         """
         Start the WebSocket server.
         """
-        self.server = await websockets.serve(
-            self.handle_connection,
-            self.host,
-            self.port,
-            **self.websocket_config
-        )
-        logger.info(f"WebSocket server started on {self.host}:{self.port}")
-        await self.server.wait_closed()
+        try:
+            self.server = await websockets.serve(
+                self.handle_connection,
+                self.host,
+                self.port,
+                **self.websocket_config
+            )
+            logger.info(f"WebSocket服务器启动成功 - 监听地址: {self.host}:{self.port}")
+            logger.info(f"客户端可以使用 ws://{self.host}:{self.port} 进行连接")
+            await self.server.wait_closed()
+        except Exception as e:
+            logger.error(f"WebSocket服务器启动失败: {e}", exc_info=True)
+            raise
     
     async def stop(self):
         """
@@ -62,7 +76,7 @@ class MinecraftServer:
         if self.server:
             self.server.close()
             await self.server.wait_closed()
-            logger.info("WebSocket server stopped")
+            logger.info("WebSocket服务器已停止")
     
     async def handle_connection(self, websocket, path):
         """
@@ -73,7 +87,10 @@ class MinecraftServer:
             path: Connection path
         """
         client_id = str(uuid.uuid4())
-        active_connections[client_id] = websocket
+        client_info = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
+        logger.info(f"新客户端连接: {client_info} (ID: {client_id})")
+        
+        self.active_connections[client_id] = websocket
         
         try:
             # Send welcome message
@@ -86,14 +103,14 @@ class MinecraftServer:
             # Process messages
             await self.process_messages(client_id, websocket)
         except websockets.exceptions.ConnectionClosed as e:
-            logger.info(f"Connection closed for client {client_id}: {e}")
+            logger.info(f"客户端 {client_id} 连接关闭: {e.code} - {e.reason}")
         except Exception as e:
-            logger.error(f"Error handling connection for client {client_id}: {e}", exc_info=True)
+            logger.error(f"处理客户端 {client_id} 连接时出错: {e}", exc_info=True)
         finally:
             # Remove client from active connections
-            if client_id in active_connections:
-                del active_connections[client_id]
-            logger.info(f"Client {client_id} disconnected")
+            if client_id in self.active_connections:
+                del self.active_connections[client_id]
+            logger.info(f"客户端 {client_id} 已断开连接")
     
     async def process_messages(self, client_id, websocket):
         """
@@ -107,13 +124,14 @@ class MinecraftServer:
             try:
                 # Parse JSON message
                 data = json.loads(message)
+                logger.debug(f"收到来自客户端 {client_id} 的消息: {message[:200]}...")
                 
                 # Handle message based on type
                 await self.handle_message(client_id, data)
             except json.JSONDecodeError:
-                logger.error(f"Invalid JSON from client {client_id}: {message}")
+                logger.error(f"客户端 {client_id} 发送的JSON无效: {message[:200]}...")
             except Exception as e:
-                logger.error(f"Error processing message from client {client_id}: {e}", exc_info=True)
+                logger.error(f"处理客户端 {client_id} 消息时出错: {e}", exc_info=True)
     
     async def handle_message(self, client_id, data):
         """
@@ -131,15 +149,15 @@ class MinecraftServer:
                 # Default handling for player messages
                 sender = data.get("body", {}).get("sender", "")
                 message = data.get("body", {}).get("message", "")
-                logger.info(f"Player message from {sender}: {message}")
+                logger.info(f"收到玩家 {sender} 的消息: {message}")
         
         # Check if it's a command response
         elif "header" in data and "requestId" in data["header"]:
-            logger.debug(f"Command response: {data}")
+            logger.debug(f"命令响应: {data}")
         
         # Unknown message type
         else:
-            logger.debug(f"Unknown message type: {data}")
+            logger.debug(f"未知消息类型: {data}")
     
     async def send_message(self, client_id, message):
         """
@@ -152,16 +170,18 @@ class MinecraftServer:
         Returns:
             bool: True if message was sent successfully, False otherwise
         """
-        websocket = active_connections.get(client_id)
+        websocket = self.active_connections.get(client_id)
         if not websocket:
-            logger.warning(f"Cannot send message to client {client_id}: not connected")
+            logger.warning(f"无法向客户端 {client_id} 发送消息: 未连接")
             return False
         
         try:
-            await websocket.send(json.dumps(message))
+            message_json = json.dumps(message)
+            await websocket.send(message_json)
+            logger.debug(f"向客户端 {client_id} 发送消息: {message_json[:200]}...")
             return True
         except Exception as e:
-            logger.error(f"Error sending message to client {client_id}: {e}")
+            logger.error(f"向客户端 {client_id} 发送消息时出错: {e}")
             return False
     
     async def broadcast_message(self, message):
@@ -175,7 +195,7 @@ class MinecraftServer:
             int: Number of clients that received the message
         """
         sent_count = 0
-        for client_id in list(active_connections.keys()):
+        for client_id in list(self.active_connections.keys()):
             if await self.send_message(client_id, message):
                 sent_count += 1
         return sent_count

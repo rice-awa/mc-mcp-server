@@ -4,10 +4,10 @@ import asyncio
 import json
 import os
 import re
-import auth
+#import auth
 import uuid
 import websockets
-from gptapi import GPTAPIConversation
+#from gptapi import GPTAPIConversation
 
 api_url = "https://api.siliconflow.cn" # API地址
 api_key = os.getenv("siliconflow_apikey")  # API密钥
@@ -15,10 +15,10 @@ api_key = os.getenv("siliconflow_apikey")  # API密钥
 # api_url = "https://burn.hair/v1" # API地址
 # api_key = os.getenv("API_KEY")  # API密钥
 
-if not api_url:
-    raise ValueError("API_URL 环境变量未设置")
-if not api_key:
-    raise ValueError("API_KEY 环境变量未设置")
+# if not api_url:
+#     raise ValueError("API_URL 环境变量未设置")
+# if not api_key:
+#     raise ValueError("API_KEY 环境变量未设置")
 
 model = "deepseek-ai/DeepSeek-R1" # 模型
 #model = "gpt-4o" # 模型
@@ -336,9 +336,7 @@ websocket_config = {
     'ping_timeout': 15,
     'close_timeout': 15,
     'max_size': 10 * 1024 * 1024,  # 10MB
-    'max_queue': 32,
-    'read_limit': 65536,
-    'write_limit': 65536,
+    'max_queue': 32
 }
 
 async def main():

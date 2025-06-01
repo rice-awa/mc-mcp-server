@@ -10,18 +10,18 @@ logger = logging.getLogger("mc-mcp-server")
 
 class MinecraftServer:
     """
-    WebSocket server for Minecraft communication.
-    Handles connections with Minecraft clients and processes messages.
+    Minecraft通信的WebSocket服务器。
+    处理与Minecraft客户端的连接并处理消息。
     """
     
     def __init__(self, config, message_handler=None):
         """
-        Initialize the Minecraft WebSocket server.
+        初始化Minecraft WebSocket服务器。
         
-        Args:
-            config (dict): Server configuration
-            message_handler (callable, optional): Function to handle incoming messages.
-                Should accept client_id, message_type, and message as arguments.
+        参数:
+            config (dict): 服务器配置
+            message_handler (callable, optional): 处理传入消息的函数。
+                应接受client_id，message_type和message作为参数。
         """
         self.config = config
         
@@ -30,8 +30,7 @@ class MinecraftServer:
         
         # 为测试目的，将host设置为localhost
         # 注意：在生产环境中，可以使用config中的值，通常是"0.0.0.0"
-        #self.host = server_config.get("host", "0.0.0.0")
-        self.host = "localhost"  # 强制使用localhost以便本地测试
+        self.host = server_config.get("host", "0.0.0.0")
         
         self.port = server_config.get("port", 8080)
         
@@ -53,7 +52,7 @@ class MinecraftServer:
     
     async def start(self):
         """
-        Start the WebSocket server.
+        启动WebSocket服务器。
         """
         try:
             self.server = await websockets.serve(
@@ -71,7 +70,7 @@ class MinecraftServer:
     
     async def stop(self):
         """
-        Stop the WebSocket server.
+        停止WebSocket服务器。
         """
         if self.server:
             self.server.close()
@@ -80,11 +79,10 @@ class MinecraftServer:
     
     async def handle_connection(self, websocket):
         """
-        Handle a new WebSocket connection.
+        处理新的WebSocket连接。
         
-        Args:
-            websocket: WebSocket connection object
-            path: Connection path
+        参数:
+            websocket: WebSocket连接对象
         """
         client_id = str(uuid.uuid4())
         client_info = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
@@ -93,40 +91,42 @@ class MinecraftServer:
         self.active_connections[client_id] = websocket
         
         try:
-            # Send welcome message
+            # 发送欢迎消息
             welcome_message = self._create_welcome_message(client_id)
-            await self.send_message(client_id, welcome_message)
             
-            # Subscribe to PlayerMessage event
+            # 发送欢迎消息文本内容
+            await self.send_game_message(client_id, welcome_message["content"])
+            
+            # 订阅PlayerMessage事件
             await self.subscribe_event(client_id, "PlayerMessage")
             
-            # Process messages
+            # 处理消息
             await self.process_messages(client_id, websocket)
         except websockets.exceptions.ConnectionClosed as e:
             logger.info(f"客户端 {client_id} 连接关闭: {e.code} - {e.reason}")
         except Exception as e:
             logger.error(f"处理客户端 {client_id} 连接时出错: {e}", exc_info=True)
         finally:
-            # Remove client from active connections
+            # 从活动连接中移除客户端
             if client_id in self.active_connections:
                 del self.active_connections[client_id]
             logger.info(f"客户端 {client_id} 已断开连接")
     
     async def process_messages(self, client_id, websocket):
         """
-        Process incoming messages from a client.
+        处理来自客户端的传入消息。
         
-        Args:
-            client_id (str): Client identifier
-            websocket: WebSocket connection object
+        参数:
+            client_id (str): 客户端标识符
+            websocket: WebSocket连接对象
         """
         async for message in websocket:
             try:
-                # Parse JSON message
+                # 解析JSON消息
                 data = json.loads(message)
                 logger.debug(f"收到来自客户端 {client_id} 的消息: {message[:200]}...")
                 
-                # Handle message based on type
+                # 根据类型处理消息
                 await self.handle_message(client_id, data)
             except json.JSONDecodeError:
                 logger.error(f"客户端 {client_id} 发送的JSON无效: {message[:200]}...")
@@ -135,81 +135,81 @@ class MinecraftServer:
     
     async def handle_message(self, client_id, data):
         """
-        Handle a parsed message from a client.
+        处理来自客户端的已解析消息。
         
-        Args:
-            client_id (str): Client identifier
-            data (dict): Parsed message data
+        参数:
+            client_id (str): 客户端标识符
+            data (dict): 已解析的消息数据
         """
-        # Check if it's a player message event
+        # 检查是否为玩家消息事件
         if "header" in data and data["header"].get("eventName") == "PlayerMessage":
             if self.message_handler:
                 await self.message_handler(client_id, "PlayerMessage", data)
             else:
-                # Default handling for player messages
+                # 玩家消息的默认处理
                 sender = data.get("body", {}).get("sender", "")
                 message = data.get("body", {}).get("message", "")
                 logger.info(f"收到玩家 {sender} 的消息: {message}")
         
-        # Check if it's a command response
+        # 检查是否为命令响应
         elif "header" in data and "requestId" in data["header"]:
             logger.debug(f"命令响应: {data}")
         
-        # Unknown message type
+        # 未知消息类型
         else:
             logger.debug(f"未知消息类型: {data}")
     
-    async def send_message(self, client_id, message):
+    async def send_data(self, client_id, data):
         """
-        Send a message to a client.
+        向客户端发送数据。
         
-        Args:
-            client_id (str): Client identifier
-            message (dict): Message to send
+        参数:
+            client_id (str): 客户端标识符
+            data (dict): 要发送的数据
             
-        Returns:
-            bool: True if message was sent successfully, False otherwise
+        返回:
+            bool: 如果数据成功发送则为True，否则为False
         """
         websocket = self.active_connections.get(client_id)
         if not websocket:
-            logger.warning(f"无法向客户端 {client_id} 发送消息: 未连接")
+            logger.warning(f"无法向客户端 {client_id} 发送数据: 未连接")
             return False
         
         try:
-            message_json = json.dumps(message)
-            await websocket.send(message_json)
-            logger.debug(f"向客户端 {client_id} 发送消息: {message_json[:200]}...")
+            data_json = json.dumps(data)
+            await websocket.send(data_json)
+            logger.debug(f"向客户端 {client_id} 发送数据: {data_json[:200]}...")
             return True
         except Exception as e:
-            logger.error(f"向客户端 {client_id} 发送消息时出错: {e}")
+            logger.error(f"向客户端 {client_id} 发送数据时出错: {e}")
             return False
     
     async def broadcast_message(self, message):
         """
-        Broadcast a message to all connected clients.
+        向所有已连接的客户端广播消息。
         
-        Args:
-            message (dict): Message to broadcast
+        参数:
+            message (dict): 要广播的消息
             
-        Returns:
-            int: Number of clients that received the message
+        返回:
+            int: 接收到消息的客户端数量
         """
         sent_count = 0
         for client_id in list(self.active_connections.keys()):
-            if await self.send_message(client_id, message):
+            if await self.send_data(client_id, message):
                 sent_count += 1
         return sent_count
     
     async def subscribe_event(self, client_id, event_name):
         """
-        Subscribe to a Minecraft event.
+        订阅Minecraft事件。
         
-        Args:
-            client_id (str): Client identifier
-            event_name (str): Name of the event to subscribe to
+        参数:
+            client_id (str): 客户端标识符
+            event_name (str): 要订阅的事件名称
             
-        Returns:
-            bool: True if subscription was successful, False otherwise
+        返回:
+            bool: 如果订阅成功则为True，否则为False
         """
         subscription_message = {
             "body": {
@@ -223,18 +223,18 @@ class MinecraftServer:
             }
         }
         
-        return await self.send_message(client_id, subscription_message)
+        return await self.send_data(client_id, subscription_message)
     
     async def run_command(self, client_id, command):
         """
-        Run a Minecraft command.
+        运行Minecraft命令。
         
-        Args:
-            client_id (str): Client identifier
-            command (str): Command to run
+        参数:
+            client_id (str): 客户端标识符
+            command (str): 要运行的命令
             
-        Returns:
-            bool: True if command was sent successfully, False otherwise
+        返回:
+            bool: 如果命令成功发送则为True，否则为False
         """
         command_message = {
             "body": {
@@ -252,20 +252,20 @@ class MinecraftServer:
             }
         }
         
-        return await self.send_message(client_id, command_message)
+        return await self.send_data(client_id, command_message)
     
     async def send_game_message(self, client_id, message):
         """
-        Send a chat message to the game.
+        向游戏内发送聊天消息。
         
-        Args:
-            client_id (str): Client identifier
-            message (str): Message content
+        参数:
+            client_id (str): 客户端标识符
+            message (str): 消息内容
             
-        Returns:
-            bool: True if message was sent successfully, False otherwise
+        返回:
+            bool: 如果消息成功发送则为True，否则为False
         """
-        # Escape special characters
+        # 转义特殊字符
         escaped_message = message.replace('"', '\\"').replace(':', '：').replace('%', '\\%')
         
         command = f'tellraw @a {{"rawtext":[{{"text":"§a{escaped_message}"}}]}}'
@@ -273,28 +273,28 @@ class MinecraftServer:
     
     async def send_script_event(self, client_id, event_id, content):
         """
-        Send a script event to the game.
+        向游戏发送脚本事件。
         
-        Args:
-            client_id (str): Client identifier
-            event_id (str): Script event identifier
-            content (str): Event content
+        参数:
+            client_id (str): 客户端标识符
+            event_id (str): 脚本事件标识符
+            content (str): 事件内容
             
-        Returns:
-            bool: True if event was sent successfully, False otherwise
+        返回:
+            bool: 如果事件成功发送则为True，否则为False
         """
         command = f"scriptevent {event_id} {content}"
         return await self.run_command(client_id, command)
     
     def _create_welcome_message(self, client_id):
         """
-        Create a welcome message for a new client.
+        为新客户端创建欢迎消息。
         
-        Args:
-            client_id (str): Client identifier
+        参数:
+            client_id (str): 客户端标识符
             
-        Returns:
-            dict: Welcome message
+        返回:
+            dict: 欢迎消息
         """
         welcome_text = f"""
 -----------
@@ -315,24 +315,24 @@ class MinecraftServer:
 # Simple usage example
 async def run_server(config):
     """
-    Run the Minecraft WebSocket server.
+    运行Minecraft WebSocket服务器。
     
-    Args:
-        config (dict): Server configuration
+    参数:
+        config (dict): 服务器配置
     """
     server = MinecraftServer(config)
     await server.start()
 
 
 if __name__ == "__main__":
-    # This code will only run if the file is executed directly
+    # 仅当文件直接执行时才运行此代码
     from .utils.logging import load_config
     
-    # Load configuration
+    # 加载配置
     config = load_config()
     
-    # Setup logging
+    # 设置日志
     logger = setup_logging(config.get("logging"))
     
-    # Run server
+    # 运行服务器
     asyncio.run(run_server(config)) 

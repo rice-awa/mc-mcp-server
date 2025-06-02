@@ -23,8 +23,9 @@ Minecraft MCP服务器是一个集成系统，由两个核心组件组成：AIAg
 
 ## 系统组件
 
-1. **AIAgent (MCP-server)** - 负责管理AI工具和处理LLM交互
-2. **MC服务器** - 基于WebSocket和脚本API的服务器，处理游戏交互
+
+1. **AIAgent (mc-server)** - 基于WebSocket和脚本API的服务器，处理游戏交互
+2. **MCP服务器** - 负责管理AI工具和处理LLM交互，通过MCP前端服务器实现外部MCP客户端的访问
 
 ## 请求路径
 
@@ -69,6 +70,7 @@ mc-mcp-server/
 │   └── test_mcp_server.py
 ├── docs/                  # 文档目录
 ├── main.py                # 主入口文件
+├── mcp_frontend_server.py # MCP服务器前端
 ├── requirements.txt       # 依赖声明
 └── README.md              # 项目说明
 

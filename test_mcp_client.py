@@ -15,7 +15,7 @@ async def test_mcp_client():
     # Create server parameters for stdio connection
     server_params = StdioServerParameters(
         command="python",  # Executable
-        args=["main.py"],  # Script to run - using mcp_only_server.py instead of main.py
+        args=["main.py","--full"],  # Script to run - using mcp_only_server.py instead of main.py
         env=None,  # No additional environment variables
     )
     

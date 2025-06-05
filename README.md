@@ -105,3 +105,8 @@ mc-mcp-server/
 3. 更新相关文档以反映代码变更
 
 ## 版本历史
+
+
+## 许可信息
+- 本项目以[MIT](./LICENSE)开源
+- 其他项目许可证见[LICENSES](/licenses/mcp-python-sdk-LICENSE)

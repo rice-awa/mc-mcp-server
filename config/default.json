@@ -13,6 +13,12 @@
     "description": "A Minecraft assistant that can interact with the game through Agent server",
     "version": "1.0.0"
   },
+  "mcp": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 8000,
+    "transport": "sse"
+  },
   "llm": {
     "model": "deepseek-ai/DeepSeek-R1",
     "api_url": "",

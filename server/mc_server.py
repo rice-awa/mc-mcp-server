@@ -67,6 +67,15 @@ class MinecraftServer:
         self.health_check_task = None
         self.running = False
         self.agent_server = None
+        
+        # 命令响应队列字典，用于存储每个请求ID对应的命令响应
+        self.command_responses = {}
+        
+        # 命令响应等待事件字典，用于异步等待命令响应
+        self.command_response_events = {}
+        
+        # 命令超时时间（秒）
+        self.command_timeout = server_config.get("command_timeout", 10)
     
     def _setup_packet_logging(self):
         """设置数据包日志记录"""
@@ -336,7 +345,15 @@ class MinecraftServer:
         
         # 检查是否为命令响应
         elif "header" in data and "requestId" in data["header"]:
-            logger.debug(f"命令响应: {data}")
+            request_id = data["header"]["requestId"]
+            logger.debug(f"收到命令响应，请求ID: {request_id}")
+            
+            # 存储命令响应
+            self.command_responses[request_id] = data
+            
+            # 如果有等待该响应的事件，设置事件
+            if request_id in self.command_response_events:
+                self.command_response_events[request_id].set()
         
         # 未知消息类型
         else:
@@ -422,7 +439,7 @@ class MinecraftServer:
         
         return await self.send_data(client_id, subscription_message)
     
-    async def run_command(self, client_id, command, retry_count=0):
+    async def run_command(self, client_id, command, retry_count=0, wait_for_response=False):
         """
         运行Minecraft命令。
         
@@ -430,10 +447,14 @@ class MinecraftServer:
             client_id (str): 客户端标识符
             command (str): 要运行的命令
             retry_count (int, optional): 当前重试次数
+            wait_for_response (bool, optional): 是否等待命令响应
             
         Returns:
-            bool: 如果命令成功发送则为True，否则为False
+            tuple: (成功发送状态, 请求ID, 命令响应)，如果不等待响应则响应为None
         """
+        # 生成请求ID
+        request_id = str(uuid.uuid4())
+        
         command_message = {
             "body": {
                 "origin": {
@@ -443,12 +464,16 @@ class MinecraftServer:
                 "version": 17039360
             },
             "header": {
-                "requestId": str(uuid.uuid4()),
+                "requestId": request_id,
                 "messagePurpose": "commandRequest",
                 "version": 1,
                 "EventName": "commandRequest"
             }
         }
+        
+        # 如果需要等待响应，创建事件
+        if wait_for_response:
+            self.command_response_events[request_id] = asyncio.Event()
         
         success = await self.send_data(client_id, command_message)
         
@@ -458,28 +483,59 @@ class MinecraftServer:
             reconnected = await self.try_reconnect(client_id)
             if reconnected:
                 # 重新连接成功，重试命令
-                return await self.run_command(client_id, command, retry_count + 1)
+                return await self.run_command(client_id, command, retry_count + 1, wait_for_response)
         
-        return success
+        # 如果不需要等待响应或发送失败，直接返回
+        if not wait_for_response or not success:
+            return (success, request_id, None)
+        
+        # 等待命令响应
+        try:
+            # 等待响应，带超时
+            await asyncio.wait_for(self.command_response_events[request_id].wait(), timeout=self.command_timeout)
+            
+            # 获取响应
+            response = self.command_responses.get(request_id)
+            
+            # 清理事件和响应
+            del self.command_response_events[request_id]
+            if request_id in self.command_responses:
+                del self.command_responses[request_id]
+            
+            return (True, request_id, response)
+        except asyncio.TimeoutError:
+            logger.warning(f"等待命令响应超时，请求ID: {request_id}")
+            
+            # 清理事件
+            if request_id in self.command_response_events:
+                del self.command_response_events[request_id]
+            
+            return (True, request_id, None)
     
-    async def run_commands(self, client_id, commands):
+    async def run_commands(self, client_id, commands, wait_for_responses=False):
         """
         批量运行多个Minecraft命令。
         
         Args:
             client_id (str): 客户端标识符
             commands (list): 要运行的命令列表
+            wait_for_responses (bool, optional): 是否等待所有命令响应
             
         Returns:
-            bool: 如果所有命令成功发送则为True，否则为False
+            tuple: (全部成功发送状态, 命令结果列表)
         """
         all_success = True
+        results = []
+        
         for command in commands:
-            success = await self.run_command(client_id, command)
+            success, request_id, response = await self.run_command(client_id, command, wait_for_response=wait_for_responses)
             if not success:
                 all_success = False
                 logger.warning(f"命令执行失败: {command}")
-        return all_success
+            
+            results.append((success, request_id, response))
+            
+        return (all_success, results)
     
     async def try_reconnect(self, client_id):
         """
@@ -510,24 +566,25 @@ class MinecraftServer:
         logger.warning(f"客户端 {client_id} 重新连接失败")
         return False
     
-    async def send_game_message(self, client_id, message):
+    async def send_game_message(self, client_id, message, wait_for_response=False):
         """
         向游戏内发送聊天消息。
         
         Args:
             client_id (str): 客户端标识符
             message (str): 消息内容
+            wait_for_response (bool, optional): 是否等待命令响应
             
         Returns:
-            bool: 如果消息成功发送则为True，否则为False
+            tuple: (成功发送状态, 请求ID, 命令响应)
         """
         # 转义特殊字符
         escaped_message = message.replace('"', '\\"').replace(':', '：').replace('%', '\\%')
         
         command = f'tellraw @a {{"rawtext":[{{"text":"§a{escaped_message}"}}]}}'
-        return await self.run_command(client_id, command)
+        return await self.run_command(client_id, command, wait_for_response=wait_for_response)
     
-    async def send_script_event(self, client_id, event_id, content):
+    async def send_script_event(self, client_id, event_id, content, wait_for_response=False):
         """
         向游戏发送脚本事件。
         
@@ -535,12 +592,13 @@ class MinecraftServer:
             client_id (str): 客户端标识符
             event_id (str): 脚本事件标识符
             content (str): 事件内容
+            wait_for_response (bool, optional): 是否等待命令响应
             
         Returns:
-            bool: 如果事件成功发送则为True，否则为False
+            tuple: (成功发送状态, 请求ID, 命令响应)
         """
         command = f"scriptevent {event_id} {content}"
-        return await self.run_command(client_id, command)
+        return await self.run_command(client_id, command, wait_for_response=wait_for_response)
     
     def _create_welcome_message(self, client_id):
         """

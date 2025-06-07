@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 
 from server.mc_server import MinecraftServer
 from server.agent_server import AgentServer
+from server.mcp_server import MCPServer
 from server.utils.logging import setup_logging
 
 # 加载环境变量
@@ -41,6 +42,7 @@ def load_config():
         return {
             "server": {"host": "0.0.0.0", "port": 8080},
             "agent": {"name": "Minecraft Assistant", "version": "1.0.0"},
+            "mcp": {"host": "0.0.0.0", "port": 8000, "enabled": True},
             "auth": {"required": True, "token_expiry": 86400},
             "logging": {"level": "INFO"}
         }
@@ -50,7 +52,9 @@ def parse_args():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description="Minecraft Agent 服务器")
     parser.add_argument("--full", action="store_true", help="运行完整服务器（Minecraft和Agent）")
+    parser.add_argument("--mcp", action="store_true", help="启用MCP服务器")
     parser.add_argument("--debug", action="store_true", help="启用调试模式，记录WebSocket数据包")
+    parser.add_argument("--mcp-port", type=int, help="指定MCP服务器端口", default=8000)
     return parser.parse_args()
 
 # 设置日志文件
@@ -341,9 +345,33 @@ def setup_agent_server(minecraft_server=None):
     
     return agent_server
 
+def setup_mcp_server(minecraft_server=None):
+    """设置并返回MCP服务器实例"""
+    # 加载配置
+    config = load_config()
+    
+    # 创建MCP服务器
+    mcp_server = MCPServer(config, minecraft_server)
+    
+    logger.info("已创建MCP服务器")
+    
+    return mcp_server
 
-async def run_both_servers(debug_mode=False):
-    """运行Minecraft服务器和Agent服务器"""
+async def run_all_servers(debug_mode=False, enable_mcp=None, mcp_port=None):
+    """运行Minecraft服务器、Agent服务器和MCP服务器"""
+    # 加载配置
+    config = load_config()
+    
+    # 从配置中获取MCP设置（如果命令行参数未指定）
+    if enable_mcp is None:
+        enable_mcp = config.get("mcp", {}).get("enabled", False)
+    
+    if mcp_port is None:
+        mcp_port = config.get("mcp", {}).get("port", 8000)
+    
+    mcp_host = config.get("mcp", {}).get("host", "0.0.0.0")
+    mcp_transport = config.get("mcp", {}).get("transport", "sse")
+    
     # 设置Minecraft服务器
     minecraft_server = await setup_minecraft_server(debug_mode)
     
@@ -351,10 +379,52 @@ async def run_both_servers(debug_mode=False):
     agent_server = setup_agent_server(minecraft_server)
     
     # 启动Minecraft服务器
-    await minecraft_server.start()
+    mc_server_task = asyncio.create_task(minecraft_server.start())
     
-    # 运行Agent服务器
-    await agent_server.run(transport="stdio")
+    # 设置MCP服务器（如果启用）
+    mcp_server = None
+    mcp_server_task = None
+    
+    if enable_mcp:
+        try:
+            # 导入必要的模块
+            import mcp
+            logger.info("已检测到MCP库，正在设置MCP服务器...")
+            
+            # 创建MCP服务器
+            mcp_server = setup_mcp_server(minecraft_server)
+            
+            # 通过settings设置host和port
+            mcp_server.mcp_server.settings.host = mcp_host
+            mcp_server.mcp_server.settings.port = mcp_port
+            
+            # 使用线程启动MCP服务器，因为FastMCP的run方法会阻塞
+            import threading
+            mcp_thread = threading.Thread(
+                target=lambda: mcp_server.run(transport=mcp_transport),
+                daemon=True  # 使其成为守护线程，这样主程序退出时它会自动结束
+            )
+            mcp_thread.start()
+            
+            logger.info(f"MCP服务器启动中，地址: {mcp_host}:{mcp_port}，传输方式: {mcp_transport}")
+            
+            # 不再使用asyncio.create_task，因为已经使用线程启动了
+            mcp_server_task = None
+        except ImportError:
+            logger.warning("未安装MCP库，无法启动MCP服务器")
+        except Exception as e:
+            logger.error(f"启动MCP服务器时出错: {e}", exc_info=True)
+    
+    # 等待服务器完成
+    try:
+        # 等待Minecraft服务器任务完成
+        await mc_server_task
+    except asyncio.CancelledError:
+        logger.info("Minecraft服务器任务被取消")
+    finally:
+        # 我们不需要取消mcp_server_task，因为使用的是线程
+        # 线程设置为daemon=True，主程序退出时会自动结束
+        pass
 
 if __name__ == "__main__":
     # 解析命令行参数
@@ -363,10 +433,29 @@ if __name__ == "__main__":
     # 设置文件日志
     log_file = setup_file_logging()
     
+    # 加载配置
+    config = load_config()
+    
     try:
+        # 确定是否启用MCP服务器
+        # 如果通过命令行明确指定了--mcp，则使用命令行参数
+        # 否则使用配置文件中的设置
+        enable_mcp = args.mcp if args.mcp else config.get("mcp", {}).get("enabled", False)
+        
+        # 获取MCP端口（命令行参数优先）
+        mcp_port = args.mcp_port if args.mcp_port != 8000 else config.get("mcp", {}).get("port", 8000)
+        
         # 运行后端服务器
-        logger.info("启动MCP Agent服务器")
-        asyncio.run(run_both_servers(args.debug))
+        logger.info("启动Minecraft Agent 服务器")
+        logger.info(f"MCP服务器: {'启用' if enable_mcp else '禁用'}")
+        if enable_mcp:
+            logger.info(f"MCP服务器端口: {mcp_port}")
+        
+        asyncio.run(run_all_servers(
+            debug_mode=args.debug,
+            enable_mcp=enable_mcp,
+            mcp_port=mcp_port
+        ))
     except KeyboardInterrupt:
         logger.info("接收到中断信号，正在关闭服务器...")
     except Exception as e:

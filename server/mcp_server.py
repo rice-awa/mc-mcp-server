@@ -1,8 +1,13 @@
 import json
 import logging
 import asyncio
+import inspect
+import importlib
+import pkgutil
+from pathlib import Path
 from typing import Dict, Any, Optional, Callable
 from mcp.server.fastmcp import FastMCP
+from .utils.tools import tool_registry, ToolResult
 
 logger = logging.getLogger("mc-agent-server")
 
@@ -38,12 +43,49 @@ class MCPServer:
         self.mcp_server.settings.host = config.get("mcp", {}).get("host", "0.0.0.0")
         self.mcp_server.settings.port = config.get("mcp", {}).get("port", 8000)
         
+        # 更新工具注册表中的服务器引用
+        tool_registry.update_minecraft_server(minecraft_server)
+        tool_registry.update_mcp_server(self)
+        
+        # 自动导入工具模块
+        self._import_tool_modules()
+        
         # 注册工具和资源
         self._register_tools()
         self._register_resources()
         
+    def _import_tool_modules(self):
+        """自动导入工具模块"""
+        try:
+            # 项目根目录
+            import tools
+            
+            # 导入tools包中的所有模块
+            logger.info("正在导入工具模块...")
+            
+            # 遍历tools包中的所有模块
+            tools_path = Path(tools.__path__[0])
+            for module_info in pkgutil.iter_modules([str(tools_path)]):
+                if not module_info.ispkg and module_info.name != "__init__":
+                    try:
+                        module_name = f"tools.{module_info.name}"
+                        logger.info(f"导入模块: {module_name}")
+                        importlib.import_module(module_name)
+                    except Exception as e:
+                        logger.error(f"导入模块 {module_info.name} 时出错: {e}", exc_info=True)
+            
+            logger.info(f"工具模块导入完成，已注册 {len(tool_registry.get_all_tool_names())} 个工具")
+            
+        except ImportError as e:
+            logger.warning(f"无法导入工具模块: {e}")
+        except Exception as e:
+            logger.error(f"导入工具模块时出错: {e}", exc_info=True)
+        
     def _register_tools(self):
         """注册MCP工具"""
+        
+        # 注册内置基本工具（这些工具不需要复杂的实现，直接在这里定义）
+        # 也可以将这些移到tools目录中使用装饰器注册
         
         @self.mcp_server.tool()
         async def execute_command(command: str, client_id: str = None, wait_response: bool = True) -> dict:
@@ -173,30 +215,122 @@ class MCPServer:
                     "success": False,
                     "error": str(e)
                 }
-
+        
         @self.mcp_server.tool()
-        async def teleport_player(player_name: str, x: float, y: float, z: float, client_id: str = None, dimension: str = None, wait_response: bool = False) -> dict:
+        async def get_tool_packages() -> dict:
             """
-            传送玩家到指定坐标。
+            获取可用的工具包列表。
+            
+            返回所有可用的工具扩展包及其简短描述。
+            
+            Returns:
+                dict: 工具包信息
+            """
+            if self.minecraft_server and hasattr(self.minecraft_server, "agent_server"):
+                agent_server = self.minecraft_server.agent_server
+                if agent_server:
+                    try:
+                        packages = agent_server.get_tool_packages()
+                        return {
+                            "success": True,
+                            "packages": packages
+                        }
+                    except Exception as e:
+                        logger.error(f"获取工具包列表时出错: {e}", exc_info=True)
+                        return {
+                            "success": False,
+                            "error": f"获取工具包列表时出错: {str(e)}"
+                        }
+            
+            return {
+                "success": False,
+                "error": "Agent服务器未连接或不可用"
+            }
+        
+        @self.mcp_server.tool()
+        async def get_package_tools(package_name: str) -> dict:
+            """
+            获取特定工具包中的工具列表。
             
             Args:
-                player_name (str): 玩家名称
-                x (float): X坐标
-                y (float): Y坐标
-                z (float): Z坐标
-                client_id (str, optional): 客户端ID
-                dimension (str, optional): 维度名称
-                wait_response (bool, optional): 是否等待命令响应
+                package_name (str): 工具包名称
                 
             Returns:
-                dict: 传送结果，包含响应数据
+                dict: 工具包中的工具信息
             """
-            if dimension:
-                command = f"tp {player_name} {x} {y} {z} {dimension}"
-            else:
-                command = f"tp {player_name} {x} {y} {z}"
+            if self.minecraft_server and hasattr(self.minecraft_server, "agent_server"):
+                agent_server = self.minecraft_server.agent_server
+                if agent_server:
+                    try:
+                        tools = agent_server.get_package_tools(package_name)
+                        return {
+                            "success": True,
+                            "package": package_name,
+                            "tools": tools
+                        }
+                    except Exception as e:
+                        logger.error(f"获取工具包 {package_name} 的工具列表时出错: {e}", exc_info=True)
+                        return {
+                            "success": False,
+                            "error": f"获取工具包工具列表时出错: {str(e)}"
+                        }
             
-            return await execute_command(command=command, client_id=client_id, wait_response=wait_response)
+            return {
+                "success": False,
+                "error": "Agent服务器未连接或不可用"
+            }
+        
+        # 自动注册工具注册表中的所有工具
+        for tool_name in tool_registry.get_all_tool_names():
+            self._register_tool_from_registry(tool_name)
+    
+    def _register_tool_from_registry(self, tool_name: str):
+        """
+        从工具注册表中注册工具到MCP服务器。
+        
+        Args:
+            tool_name (str): 工具名称
+        """
+        # 获取工具文档
+        doc_string = tool_registry.get_tool_doc(tool_name)
+        if not doc_string:
+            logger.warning(f"工具 {tool_name} 没有文档字符串")
+            return
+        
+        # 动态创建工具处理函数
+        @self.mcp_server.tool()
+        async def dynamic_tool(**kwargs):
+            """动态生成的工具处理函数"""
+            # 从注册表获取工具实例
+            tool = tool_registry.get_tool(tool_name)
+            if not tool:
+                return {
+                    "success": False,
+                    "error": f"工具 {tool_name} 不可用"
+                }
+            
+            try:
+                # 执行工具
+                result = await tool.execute(**kwargs)
+                
+                # 如果结果是ToolResult实例，转换为字典
+                if isinstance(result, ToolResult):
+                    return result.to_dict()
+                
+                # 否则直接返回结果（向后兼容）
+                return result
+            except Exception as e:
+                logger.error(f"执行工具 {tool_name} 时出错: {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+        
+        # 设置函数名称和文档字符串
+        dynamic_tool.__name__ = tool_name
+        dynamic_tool.__doc__ = doc_string
+        
+        logger.info(f"已从注册表注册工具到MCP: {tool_name}")
     
     def _register_resources(self):
         """注册MCP资源"""
@@ -308,4 +442,8 @@ class MCPServer:
             minecraft_server: 新的Minecraft服务器实例
         """
         self.minecraft_server = minecraft_server
+        
+        # 同时更新工具注册表中的引用
+        tool_registry.update_minecraft_server(minecraft_server)
+        
         logger.info("已更新MCP服务器的Minecraft服务器引用") 

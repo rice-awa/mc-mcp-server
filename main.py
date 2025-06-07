@@ -51,7 +51,6 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Minecraft Agent 服务器")
     parser.add_argument("--full", action="store_true", help="运行完整服务器（Minecraft和Agent）")
     parser.add_argument("--debug", action="store_true", help="启用调试模式，记录WebSocket数据包")
-    parser.add_argument("--frontend", action="store_true", help="启动前端MCP服务器")
     return parser.parse_args()
 
 # 设置日志文件
@@ -313,7 +312,7 @@ def setup_agent_server(minecraft_server=None):
         import tools.commands
         import tools.messages
         import tools.script_api
-        
+
         # 注册工具
         tools.commands.register_tools(agent_server)
         tools.messages.register_tools(agent_server)
@@ -342,62 +341,6 @@ def setup_agent_server(minecraft_server=None):
     
     return agent_server
 
-async def run_frontend_server():
-    """启动前端MCP服务器作为子进程"""
-    logger.info("启动前端MCP服务器...")
-    
-    # 获取当前脚本的目录
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    frontend_script = os.path.join(script_dir, "mcp_frontend_server.py")
-    
-    # 启动前端服务器进程
-    process = await asyncio.create_subprocess_exec(
-        sys.executable, frontend_script,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    
-    logger.info(f"前端MCP服务器已启动，PID: {process.pid}")
-    
-    # 设置通信处理
-    async def handle_frontend_output():
-        while True:
-            line = await process.stdout.readline()
-            if not line:
-                break
-                
-            try:
-                # 解析前端发送的请求
-                message = json.loads(line.decode("utf-8"))
-                client_id = message.get("client_id", "frontend")
-                request = message.get("request", {})
-                
-                # 处理请求
-                logger.debug(f"收到前端请求: {request}")
-                # 这里可以处理前端请求
-                
-                # 发送响应
-                response = {"client_id": client_id, "response": {"success": True}}
-                process.stdin.write((json.dumps(response) + "\n").encode("utf-8"))
-                await process.stdin.drain()
-                
-            except json.JSONDecodeError as e:
-                logger.error(f"无效的前端消息: {e}")
-    
-    # 监听前端错误输出
-    async def handle_frontend_error():
-        while True:
-            line = await process.stderr.readline()
-            if not line:
-                break
-            logger.error(f"前端错误: {line.decode('utf-8').strip()}")
-    
-    # 启动通信处理任务
-    asyncio.create_task(handle_frontend_output())
-    asyncio.create_task(handle_frontend_error())
-    
-    return process
 
 async def run_both_servers(debug_mode=False):
     """运行Minecraft服务器和Agent服务器"""
@@ -413,80 +356,6 @@ async def run_both_servers(debug_mode=False):
     # 运行Agent服务器
     await agent_server.run(transport="stdio")
 
-async def run_backend_server(debug_mode=False):
-    """运行后端服务器，与前端通信"""
-    # 设置Minecraft服务器
-    minecraft_server = await setup_minecraft_server(debug_mode)
-    
-    # 设置Agent服务器
-    agent_server = setup_agent_server(minecraft_server)
-    
-    # 启动Minecraft服务器
-    await minecraft_server.start()
-    
-    # 启动前端服务器
-    frontend_process = await run_frontend_server()
-    
-    try:
-        # 处理前端请求
-        while True:
-            # 从stdin读取前端请求
-            line = await asyncio.get_event_loop().run_in_executor(None, sys.stdin.readline)
-            if not line:
-                break
-                
-            try:
-                # 解析请求
-                message = json.loads(line)
-                client_id = message.get("client_id", "frontend")
-                request = message.get("request", {})
-                
-                # 处理请求
-                response = await agent_server.handle_agent_request(client_id, request)
-                
-                # 发送响应
-                response_message = {
-                    "client_id": client_id,
-                    "response": response
-                }
-                sys.stdout.write(json.dumps(response_message) + "\n")
-                sys.stdout.flush()
-                
-            except json.JSONDecodeError as e:
-                logger.error(f"无效的请求: {e}")
-                sys.stdout.write(json.dumps({
-                    "client_id": "error",
-                    "response": {
-                        "error": {
-                            "code": "invalid_request",
-                            "message": f"Invalid JSON: {str(e)}"
-                        }
-                    }
-                }) + "\n")
-                sys.stdout.flush()
-            except Exception as e:
-                logger.error(f"处理请求时出错: {e}", exc_info=True)
-                sys.stdout.write(json.dumps({
-                    "client_id": "error",
-                    "response": {
-                        "error": {
-                            "code": "server_error",
-                            "message": str(e)
-                        }
-                    }
-                }) + "\n")
-                sys.stdout.flush()
-                
-    finally:
-        # 关闭前端进程
-        if frontend_process.returncode is None:
-            frontend_process.terminate()
-            await frontend_process.wait()
-        
-        # 关闭服务器
-        await minecraft_server.stop()
-        await agent_server.close_all_conversations()
-
 if __name__ == "__main__":
     # 解析命令行参数
     args = parse_args()
@@ -495,14 +364,9 @@ if __name__ == "__main__":
     log_file = setup_file_logging()
     
     try:
-        if args.frontend:
-            # 仅启动前端MCP服务器
-            logger.info("仅启动前端MCP服务器")
-            import mcp_frontend_server
-        else:
-            # 运行后端服务器
-            logger.info("启动后端服务器")
-            asyncio.run(run_backend_server(args.debug))
+        # 运行后端服务器
+        logger.info("启动MCP Agent服务器")
+        asyncio.run(run_both_servers(args.debug))
     except KeyboardInterrupt:
         logger.info("接收到中断信号，正在关闭服务器...")
     except Exception as e:

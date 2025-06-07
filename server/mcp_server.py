@@ -1,421 +1,311 @@
+import json
 import logging
 import asyncio
-import importlib
-import os
-import sys
-from pathlib import Path
-from typing import Dict, List, Any, Callable, Optional, Union
+from typing import Dict, Any, Optional, Callable
+from mcp.server.fastmcp import FastMCP
 
-logger = logging.getLogger("mc-mcp-server")
+logger = logging.getLogger("mc-agent-server")
 
 class MCPServer:
     """
-    MCP (Model Context Protocol) server implementation.
+    MCP服务器实现，基于FastMCP。
     
-    This class manages MCP resources and tools, providing a bridge between
-    the Minecraft WebSocket server and LLM APIs.
+    提供与外部MCP客户端通信的能力，并转发请求到Minecraft服务器。
     """
     
     def __init__(self, config, minecraft_server=None):
         """
-        Initialize the MCP server.
+        初始化MCP服务器。
         
         Args:
-            config (dict): Server configuration
-            minecraft_server (MinecraftServer, optional): Reference to the Minecraft server instance
+            config (dict): 服务器配置
+            minecraft_server (MinecraftServer, optional): Minecraft服务器实例
         """
         self.config = config
         self.minecraft_server = minecraft_server
-        self.name = config.get("mcp", {}).get("name", "Minecraft Assistant")
-        self.description = config.get("mcp", {}).get("description", "")
-        self.version = config.get("mcp", {}).get("version", "1.0.0")
+        self.name = config.get("agent", {}).get("name", "Minecraft Assistant")
+        self.description = config.get("agent", {}).get("description", "AI助手用于Minecraft交互")
+        self.version = config.get("agent", {}).get("version", "1.0.0")
         
-        # Store registered resources and tools
-        self.resources = {}
-        self.tools = {}
+        # 创建FastMCP服务器
+        self.mcp_server = FastMCP(
+            name=self.name,
+            description=self.description,
+            dependencies=["asyncio", "websockets", "uuid", "mcp", "python-dotenv", "fastapi", "uvicorn", "pydantic"]
+        )
         
-        # Map of active LLM conversations by client ID
-        self.conversations = {}
-    
-    def register_resource(self, uri_pattern: str, resource_func: Callable):
-        """
-        Register a resource handler function.
+        # 设置默认的host和port
+        self.mcp_server.settings.host = config.get("mcp", {}).get("host", "0.0.0.0")
+        self.mcp_server.settings.port = config.get("mcp", {}).get("port", 8000)
         
-        Args:
-            uri_pattern (str): URI pattern for the resource (e.g., "minecraft://player/{player_name}")
-            resource_func (callable): Function to handle resource retrieval
-        """
-        self.resources[uri_pattern] = resource_func
-        logger.info(f"Registered resource: {uri_pattern}")
-    
-    def register_tool(self, name: str, tool_func: Callable):
-        """
-        Register a tool function.
+        # 注册工具和资源
+        self._register_tools()
+        self._register_resources()
         
-        Args:
-            name (str): Name of the tool
-            tool_func (callable): Function implementing the tool
-        """
-        self.tools[name] = tool_func
-        logger.info(f"Registered tool: {name}")
-    
-    async def handle_mcp_request(self, client_id: str, request: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Handle an MCP request.
+    def _register_tools(self):
+        """注册MCP工具"""
         
-        Args:
-            client_id (str): Client identifier
-            request (dict): MCP request object
+        @self.mcp_server.tool()
+        async def execute_command(command: str, client_id: str = None, wait_response: bool = True) -> dict:
+            """
+            执行Minecraft命令。
             
-        Returns:
-            dict: MCP response object
-        """
-        logger.debug(f"Handling MCP request from client {client_id}: {request}")
-        
-        # Extract request type and data
-        request_type = request.get("type", "")
-        
-        if request_type == "prompt":
-            # Handle prompt request
-            return await self._handle_prompt_request(client_id, request)
-        elif request_type == "resource":
-            # Handle resource request
-            return await self._handle_resource_request(client_id, request)
-        elif request_type == "tool":
-            # Handle tool request
-            return await self._handle_tool_request(client_id, request)
-        else:
-            # Unknown request type
-            logger.warning(f"Unknown MCP request type: {request_type}")
-            return {
-                "error": {
-                    "code": "invalid_request",
-                    "message": f"Unknown request type: {request_type}"
-                }
-            }
-    
-    async def _handle_prompt_request(self, client_id: str, request: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Handle an MCP prompt request.
-        
-        Args:
-            client_id (str): Client identifier
-            request (dict): MCP prompt request
-            
-        Returns:
-            dict: MCP response object
-        """
-        from .utils.llm import create_conversation
-        
-        prompt = request.get("prompt", "")
-        if not prompt:
-            return {
-                "error": {
-                    "code": "invalid_request",
-                    "message": "Prompt is required"
-                }
-            }
-        
-        # Get or create conversation for this client
-        if client_id not in self.conversations:
-            try:
-                self.conversations[client_id] = await create_conversation(self.config)
-            except ValueError as e:
-                return {
-                    "error": {
-                        "code": "config_error",
-                        "message": str(e)
-                    }
-                }
-        
-        conversation = self.conversations[client_id]
-        
-        # Process through LLM
-        response_content = []
-        thinking_content = []
-        
-        async for chunk in conversation.call_gpt(prompt):
-            if chunk.get("reasoning_content"):
-                thinking_content.append(chunk["reasoning_content"])
-            if chunk.get("content"):
-                response_content.append(chunk["content"])
+            Args:
+                command (str): 要执行的命令
+                client_id (str, optional): 客户端ID
+                wait_response (bool, optional): 是否等待命令响应
                 
-                # If Minecraft server is available, send message to the game
-                if self.minecraft_server and client_id in self.minecraft_server.active_connections:
-                    await self.minecraft_server.send_game_message(client_id, chunk["content"])
-        
-        # Combine chunks into full response
-        full_response = "".join(response_content)
-        full_thinking = "".join(thinking_content)
-        
-        return {
-            "content": full_response,
-            "thinking": full_thinking
-        }
-    
-    async def _handle_resource_request(self, client_id: str, request: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Handle an MCP resource request.
-        
-        Args:
-            client_id (str): Client identifier
-            request (dict): MCP resource request
-            
-        Returns:
-            dict: MCP response object
-        """
-        uri = request.get("uri", "")
-        if not uri:
-            return {
-                "error": {
-                    "code": "invalid_request",
-                    "message": "Resource URI is required"
+            Returns:
+                dict: 命令执行结果，包含响应数据
+            """
+            if not self.minecraft_server:
+                return {
+                    "success": False,
+                    "error": "Minecraft服务器未连接"
                 }
-            }
-        
-        # Find matching resource handler
-        for uri_pattern, resource_func in self.resources.items():
-            # Simple pattern matching for now
-            # In a full implementation, use regex or path matching library
-            if self._match_uri_pattern(uri, uri_pattern):
-                try:
-                    # Extract parameters from URI
-                    params = self._extract_uri_params(uri, uri_pattern)
-                    
-                    # Call resource handler
-                    result = await resource_func(**params)
-                    return {"data": result}
-                except Exception as e:
-                    logger.error(f"Error handling resource request: {e}", exc_info=True)
+            
+            try:
+                # 使用第一个可用的连接，如果未指定client_id
+                if not client_id and self.minecraft_server.active_connections:
+                    client_id = next(iter(self.minecraft_server.active_connections.keys()))
+                
+                if not client_id:
                     return {
-                        "error": {
-                            "code": "resource_error",
-                            "message": str(e)
-                        }
+                        "success": False,
+                        "error": "没有活跃的Minecraft连接"
                     }
-        
-        # No matching resource found
-        return {
-            "error": {
-                "code": "not_found",
-                "message": f"Resource not found: {uri}"
-            }
-        }
-    
-    async def _handle_tool_request(self, client_id: str, request: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Handle an MCP tool request.
-        
-        Args:
-            client_id (str): Client identifier
-            request (dict): MCP tool request
-            
-        Returns:
-            dict: MCP response object
-        """
-        tool_name = request.get("name", "")
-        if not tool_name:
-            return {
-                "error": {
-                    "code": "invalid_request",
-                    "message": "Tool name is required"
+                
+                # 执行命令并等待响应
+                success, request_id, response = await self.minecraft_server.run_command(
+                    client_id, 
+                    command, 
+                    wait_for_response=wait_response
+                )
+                
+                if not success:
+                    return {
+                        "success": False,
+                        "error": "命令发送失败"
+                    }
+                
+                # 如果不等待响应或没有收到响应
+                if not wait_response or not response:
+                    return {
+                        "success": True,
+                        "message": f"命令已执行: {command}",
+                        "request_id": request_id,
+                        "response": None
+                    }
+                
+                # 返回带有响应的结果
+                return {
+                    "success": True,
+                    "message": f"命令已执行: {command}",
+                    "request_id": request_id,
+                    "response": response
                 }
-            }
-        
-        parameters = request.get("parameters", {})
-        
-        # Find tool
-        tool_func = self.tools.get(tool_name)
-        if not tool_func:
-            return {
-                "error": {
-                    "code": "not_found",
-                    "message": f"Tool not found: {tool_name}"
+            except Exception as e:
+                logger.error(f"执行命令时出错: {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": str(e)
                 }
-            }
         
-        try:
-            # Call tool function
-            result = await tool_func(client_id=client_id, **parameters)
-            return {"result": result}
-        except Exception as e:
-            logger.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
-            return {
-                "error": {
-                    "code": "tool_error",
-                    "message": str(e)
+        @self.mcp_server.tool()
+        async def send_message(message: str, client_id: str = None, target: str = None, wait_response: bool = False) -> dict:
+            """
+            发送消息到游戏聊天。
+            
+            Args:
+                message (str): 要发送的消息
+                client_id (str, optional): 客户端ID
+                target (str, optional): 目标玩家，默认为所有人
+                wait_response (bool, optional): 是否等待命令响应
+                
+            Returns:
+                dict: 消息发送结果
+            """
+            if not self.minecraft_server:
+                return {
+                    "success": False,
+                    "error": "Minecraft服务器未连接"
                 }
+            
+            try:
+                # 使用第一个可用的连接，如果未指定client_id
+                if not client_id and self.minecraft_server.active_connections:
+                    client_id = next(iter(self.minecraft_server.active_connections.keys()))
+                
+                if not client_id:
+                    return {
+                        "success": False,
+                        "error": "没有活跃的Minecraft连接"
+                    }
+                
+                # 发送消息
+                success, request_id, response = await self.minecraft_server.send_game_message(
+                    client_id, 
+                    message, 
+                    wait_for_response=wait_response
+                )
+                
+                if not success:
+                    return {
+                        "success": False,
+                        "error": "消息发送失败"
+                    }
+                
+                result = {
+                    "success": True,
+                    "message": message,
+                    "target": target or "all",
+                    "request_id": request_id
+                }
+                
+                # 如果等待响应且有响应，添加响应数据
+                if wait_response and response:
+                    result["response"] = response
+                
+                return result
+            except Exception as e:
+                logger.error(f"发送消息时出错: {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+
+        @self.mcp_server.tool()
+        async def teleport_player(player_name: str, x: float, y: float, z: float, client_id: str = None, dimension: str = None, wait_response: bool = False) -> dict:
+            """
+            传送玩家到指定坐标。
+            
+            Args:
+                player_name (str): 玩家名称
+                x (float): X坐标
+                y (float): Y坐标
+                z (float): Z坐标
+                client_id (str, optional): 客户端ID
+                dimension (str, optional): 维度名称
+                wait_response (bool, optional): 是否等待命令响应
+                
+            Returns:
+                dict: 传送结果，包含响应数据
+            """
+            if dimension:
+                command = f"tp {player_name} {x} {y} {z} {dimension}"
+            else:
+                command = f"tp {player_name} {x} {y} {z}"
+            
+            return await execute_command(command=command, client_id=client_id, wait_response=wait_response)
+    
+    def _register_resources(self):
+        """注册MCP资源"""
+        
+        @self.mcp_server.resource("minecraft://player/{player_name}")
+        async def get_player_info(player_name: str) -> dict:
+            """
+            获取玩家信息。
+            
+            Args:
+                player_name (str): 玩家名称
+                
+            Returns:
+                dict: 玩家信息
+            """
+            if not self.minecraft_server:
+                return {
+                    "error": "Minecraft服务器未连接"
+                }
+            
+            # 实际实现中应该从游戏中获取玩家信息
+            # 这里只返回模拟数据
+            return {
+                "name": player_name,
+                "position": {"x": 0, "y": 0, "z": 0},
+                "health": 20,
+                "level": 0,
+                "gamemode": "survival"
+            }
+        
+        @self.mcp_server.resource("minecraft://world")
+        async def get_world_info() -> dict:
+            """
+            获取当前世界信息。
+            
+            Returns:
+                dict: 世界信息
+            """
+            if not self.minecraft_server:
+                return {
+                    "error": "Minecraft服务器未连接"
+                }
+            
+            # 实际实现中应该从游戏中获取世界信息
+            # 这里只返回模拟数据
+            return {
+                "name": "Minecraft World",
+                "time": 0,
+                "weather": "clear",
+                "difficulty": "normal",
+                "gamemode": "survival"
+            }
+        
+        @self.mcp_server.resource("minecraft://world/block/{x}/{y}/{z}")
+        async def get_block_info(x: int, y: int, z: int) -> dict:
+            """
+            获取指定坐标的方块信息。
+            
+            Args:
+                x (int): X坐标
+                y (int): Y坐标
+                z (int): Z坐标
+                
+            Returns:
+                dict: 方块信息
+            """
+            if not self.minecraft_server:
+                return {
+                    "error": "Minecraft服务器未连接"
+                }
+            
+            # 实际实现中应该从游戏中获取方块信息
+            # 这里只返回模拟数据
+            return {
+                "position": {"x": x, "y": y, "z": z},
+                "type": "unknown",
+                "properties": {}
             }
     
-    def _match_uri_pattern(self, uri: str, pattern: str) -> bool:
-        """
-        Match a URI against a pattern.
-        
-        Args:
-            uri (str): URI to match
-            pattern (str): Pattern to match against
-            
-        Returns:
-            bool: True if URI matches pattern, False otherwise
-        """
-        # Simple implementation - in a full version, use regex
-        uri_parts = uri.split("/")
-        pattern_parts = pattern.split("/")
-        
-        if len(uri_parts) != len(pattern_parts):
-            return False
-        
-        for i, pattern_part in enumerate(pattern_parts):
-            if pattern_part.startswith("{") and pattern_part.endswith("}"):
-                # Parameter part, matches anything
-                continue
-            if pattern_part != uri_parts[i]:
-                return False
-        
-        return True
-    
-    def _extract_uri_params(self, uri: str, pattern: str) -> Dict[str, str]:
-        """
-        Extract parameters from a URI based on a pattern.
-        
-        Args:
-            uri (str): URI to extract parameters from
-            pattern (str): Pattern to match against
-            
-        Returns:
-            dict: Extracted parameters
-        """
-        parts = uri.split("/")
-        pattern_parts = pattern.split("/")
-        
-        params = {}
-        for i, pattern_part in enumerate(pattern_parts):
-            if i < len(parts) and pattern_part.startswith("{") and pattern_part.endswith("}"):
-                param_name = pattern_part[1:-1]
-                params[param_name] = parts[i]
-        
-        return params
-    
-    async def run(self, transport="stdio"):
+    def run(self, transport="sse"):
         """
         启动MCP服务器。
-
+        
         Args:
-            transport (str): 传输方式，目前支持"stdio"
+            transport (str): 传输方式，支持"sse"和"stdio"
             
         Raises:
-            ValueError: 如果传输方式不支持
+            ValueError: 如果传输方式不受支持
         """
-        logger.info(f"启动MCP服务器，使用 {transport} 传输")
+        host = self.mcp_server.settings.host
+        port = self.mcp_server.settings.port
+        logger.info(f"启动MCP服务器，使用{transport}传输，地址: {host}:{port}")
         
-        if transport == "stdio":
-            # 使用标准输入/输出进行通信
-            await self._run_stdio()
+        if transport == "sse":
+            # 使用SSE传输
+            # 直接调用FastMCP的run方法
+            self.mcp_server.run(transport="sse")
+        elif transport == "stdio":
+            # 使用标准输入/输出传输
+            self.mcp_server.run(transport="stdio")
         else:
             raise ValueError(f"不支持的传输方式: {transport}")
     
-    async def _run_stdio(self):
-        """使用标准输入/输出运行MCP服务器"""
-        import sys
-        import json
-        
-        # 创建一个随机的客户端ID
-        import uuid
-        client_id = str(uuid.uuid4())
-        
-        # 发送欢迎消息
-        welcome_message = {
-            "type": "welcome",
-            "server": self.name,
-            "version": self.version,
-            "client_id": client_id
-        }
-        print(json.dumps(welcome_message), flush=True)
-        
-        # 处理标准输入中的消息
-        while True:
-            try:
-                # 读取一行输入
-                line = await asyncio.get_event_loop().run_in_executor(None, sys.stdin.readline)
-                if not line:
-                    # EOF，退出循环
-                    break
-                
-                # 解析JSON请求
-                try:
-                    request = json.loads(line)
-                    
-                    # 处理请求
-                    response = await self.handle_mcp_request(client_id, request)
-                    
-                    # 发送响应
-                    print(json.dumps(response), flush=True)
-                except json.JSONDecodeError:
-                    logger.error(f"无效的JSON请求: {line}")
-                    print(json.dumps({
-                        "error": {
-                            "code": "invalid_request",
-                            "message": "无效的JSON请求"
-                        }
-                    }), flush=True)
-            except Exception as e:
-                logger.error(f"处理请求时出错: {e}", exc_info=True)
-                print(json.dumps({
-                    "error": {
-                        "code": "server_error",
-                        "message": str(e)
-                    }
-                }), flush=True)
-    
-    async def close_conversation(self, client_id: str):
+    def update_minecraft_server(self, minecraft_server):
         """
-        Close a conversation for a client.
+        更新Minecraft服务器引用。
         
         Args:
-            client_id (str): Client identifier
+            minecraft_server: 新的Minecraft服务器实例
         """
-        if client_id in self.conversations:
-            conversation = self.conversations[client_id]
-            await conversation.clean_history()
-            del self.conversations[client_id]
-            logger.debug(f"Closed conversation for client {client_id}")
-    
-    async def close_all_conversations(self):
-        """
-        Close all active conversations.
-        """
-        for client_id in list(self.conversations.keys()):
-            await self.close_conversation(client_id)
-        logger.info("Closed all conversations")
-    
-    def get_tools(self) -> Dict[str, str]:
-        """
-        获取所有已注册的工具列表
-        
-        Returns:
-            dict: 工具名称到描述的映射
-        """
-        tool_info = {}
-        for name, tool_func in self.tools.items():
-            # 获取工具函数的文档字符串作为描述
-            description = tool_func.__doc__ or "无描述"
-            # 确保去除前导空格和缩进
-            description = "\n".join([line.strip() for line in description.split('\n')])
-            tool_info[name] = description
-        return tool_info
-    
-    def get_resources(self) -> Dict[str, str]:
-        """
-        获取所有已注册的资源列表
-        
-        Returns:
-            dict: 资源URI模式到描述的映射
-        """
-        resource_info = {}
-        for uri_pattern, resource_func in self.resources.items():
-            # 获取资源函数的文档字符串作为描述
-            description = resource_func.__doc__ or "无描述"
-            # 确保去除前导空格和缩进
-            description = "\n".join([line.strip() for line in description.split('\n')])
-            resource_info[uri_pattern] = description
-        return resource_info 
+        self.minecraft_server = minecraft_server
+        logger.info("已更新MCP服务器的Minecraft服务器引用") 

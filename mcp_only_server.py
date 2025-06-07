@@ -75,4 +75,6 @@ async def get_block_info(x: int, y: int, z: int) -> dict:
 
 if __name__ == "__main__":
     # Run MCP server with stdio transport
-    mcp_server.run(transport="stdio") 
+    mcp_server.settings.host = "0.0.0.0"
+    mcp_server.settings.port = 8000
+    mcp_server.run(transport="sse") 

@@ -79,29 +79,31 @@ mc-mcp-server/
 
 1. 安装依赖:
    ```
-   pip install asyncio websockets uuid mcp
+   pip install -r requirements.txt
    ```
 
 2. 设置环境变量:
    ```
-   export siliconflow_apikey=your_api_key
+   export DEEPSEEK_API_KEY=your_api_key
    ```
 
 3. 启动MC服务器:
    ```
    # 标准模式
-   python main.py --full
+   python main.py --full --mcp
    
    # 调试模式（记录WebSocket数据包）
-   python main.py --full --debug
+   python main.py --full --mcp --debug
    ```
 
 4. 启动AIAgent:
    ```
-   python ai_agent.py
+   python main.py
    ```
 
 5. 连接Minecraft客户端到MC服务器(默认端口8080)
+
+6. (可选)连接外部mcp客户端(http://0.0.0.0:8000/sse)
 
 ## 调试与日志
 

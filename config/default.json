@@ -20,14 +20,14 @@
     "transport": "sse"
   },
   "llm": {
-    "model": "deepseek-ai/DeepSeek-R1",
-    "api_url": "",
+    "model": "deepseek-chat",
+    "api_url": "https://api.deepseek.com.",
     "enable_history": true,
-    "output_think": true,
+    "output_think": false,
     "system_prompt": "请始终保持积极和专业的态度。回答尽量保持一段话不要太长，适当添加换行符，尽量不要使用markdown"
   },
   "auth": {
-    "required": true,
+    "required": false,
     "token_expiry": 86400
   },
   "logging": {

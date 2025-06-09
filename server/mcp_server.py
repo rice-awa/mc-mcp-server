@@ -286,6 +286,7 @@ class MCPServer:
             获取所有可用的工具列表。
             
             返回所有已注册的工具及其简短描述，不按拓展包分类。
+            注意：使用拓展包中的工具时需要使用use_extension_tool函数，并传入工具名称和参数。
             
             Returns:
                 dict: 所有可用工具的信息，包含工具名称和描述
@@ -312,13 +313,13 @@ class MCPServer:
             }
             
         @self.mcp_server.tool()
-        async def use_extension_tool(tool_name: str, **kwargs) -> dict:
+        async def use_extension_tool(tool_name: str, kwargs: Dict[str, Any] = None) -> dict:
             """
             通用工具调用接口，用于调用任何已注册的工具拓展包中的工具。
             
             Args:
                 tool_name (str): 要调用的工具名称
-                **kwargs: 传递给工具的参数，可以直接传递参数或通过kwargs字符串传递
+                kwargs (dict): 工具参数字典
                 
             Returns:
                 dict: 工具执行结果
@@ -332,30 +333,11 @@ class MCPServer:
                 }
             
             try:
-                # 处理可能作为字符串传入的kwargs参数
-                actual_kwargs = {}
-                if 'kwargs' in kwargs and isinstance(kwargs['kwargs'], str):
-                    import json
-                    try:
-                        # 尝试解析kwargs字符串为字典
-                        parsed_kwargs = json.loads(kwargs['kwargs'])
-                        if isinstance(parsed_kwargs, dict):
-                            actual_kwargs.update(parsed_kwargs)
-                        # 保留其他参数
-                        for k, v in kwargs.items():
-                            if k != 'kwargs':
-                                actual_kwargs[k] = v
-                    except json.JSONDecodeError:
-                        # 如果解析失败，保留原始kwargs
-                        logger.warning(f"无法解析kwargs字符串: {kwargs['kwargs']}")
-                        actual_kwargs = kwargs
-                else:
-                    # 如果没有特殊的kwargs参数，直接使用传入的参数
-                    actual_kwargs = kwargs
+                # 记录参数
+                logger.info(f"执行工具 {tool_name} - 参数: {kwargs}")
                 
-                # 记录参数信息，便于调试
-                logger.debug(f"执行工具 {tool_name} - 原始参数: {kwargs}")
-                logger.debug(f"执行工具 {tool_name} - 处理后参数: {actual_kwargs}")
+                # 如果没有提供参数，使用空字典
+                actual_kwargs = kwargs or {}
                 
                 # 执行工具
                 result = await tool.execute(**actual_kwargs)
@@ -384,12 +366,6 @@ class MCPServer:
         Args:
             tool_name (str): 工具名称
         """
-        # 获取工具文档
-        doc_string = tool_registry.get_tool_doc(tool_name)
-        if not doc_string:
-            logger.warning(f"工具 {tool_name} 没有文档字符串")
-            return
-        
         # 检查是否是内置工具或特殊工具，这些工具已经单独注册
         special_tools = [
             "execute_command", 
@@ -401,8 +377,17 @@ class MCPServer:
         ]
         
         if tool_name in special_tools:
-            logger.debug(f"跳过注册内置工具: {tool_name}")
+            logger.info(f"跳过注册内置工具: {tool_name}")
             return
+        
+        # 获取工具文档
+        doc_string = tool_registry.get_tool_doc(tool_name)
+        if not doc_string:
+            logger.warning(f"工具 {tool_name} 没有文档字符串")
+            return
+        
+        # 我们不再检查工具是否已经注册，因为FastMCP没有提供直接的方式来获取已注册的工具列表
+        # 而是直接尝试注册，FastMCP会处理重复注册的情况
             
         logger.info(f"已从注册表注册工具到MCP: {tool_name}")
         

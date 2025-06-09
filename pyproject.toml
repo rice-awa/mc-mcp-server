@@ -1,0 +1,19 @@
+[project]
+name = "mc-mcp-server"
+version = "0.1.0"
+description = "A Minecraft assistant that can interact with the game through Agent server"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+"asyncio",
+"websockets",
+"uuid",
+"mcp",
+"python-dotenv",
+"fastapi",
+"uvicorn",
+"pydantic"]
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true

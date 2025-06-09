@@ -2,5 +2,7 @@
 /resources/__pycache__
 server/__pycache__
 tools/__pycache__
+server/utils/__pycache__
 *.log
 *.pyc
+/.venv

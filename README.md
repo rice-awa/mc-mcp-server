@@ -81,29 +81,46 @@ mc-mcp-server/
    ```
    pip install -r requirements.txt
    ```
-
 2. 设置环境变量:
    ```
    export DEEPSEEK_API_KEY=your_api_key
    ```
-
 3. 启动MC服务器:
-   ```
-   # 标准模式
-   python main.py --full --mcp
-   
-   # 调试模式（记录WebSocket数据包）
-   python main.py --full --mcp --debug
-   ```
 
-4. 启动AIAgent:
-   ```
-   python main.py
-   ```
+  **使用uv (推荐)**
 
-5. 连接Minecraft客户端到MC服务器(默认端口8080)
+- 安装uv
 
-6. (可选)连接外部mcp客户端(http://0.0.0.0:8000/sse)
+```python
+pip install uv
+```
+
+- 使用uv运行
+
+```python
+uv run main.py --full --mcp
+```
+
+- 调试模式（记录WebSocket数据包）
+
+```python
+uv run main.py --full --mcp --debug
+```
+
+- 直接运行
+
+```python
+python main.py --full --mcp
+```
+
+- 调试模式
+
+```python
+python main.py --full --mcp --debug
+```
+
+4. 连接Minecraft客户端到MC服务器(默认端口8080)
+5. (可选)连接外部mcp客户端(http://0.0.0.0:8000/sse)
 
 ## 调试与日志
 
@@ -124,7 +141,7 @@ mc-mcp-server/
 
 ## 版本历史
 
-
 ## 许可信息
+
 - 本项目以[MIT](./LICENSE)开源
 - 其他项目许可证见[LICENSES](/licenses/mcp-python-sdk-LICENSE)

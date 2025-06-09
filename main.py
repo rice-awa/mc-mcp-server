@@ -161,10 +161,12 @@ async def handle_test_agent_command(client_id, sender, args, minecraft_server):
         return
     
     # 查找并执行对应的测试命令处理器
-    for test_prefix, test_handler in test_command_handlers.items():
+    # 按照命令长度降序排序，确保先匹配最长的命令前缀
+    sorted_prefixes = sorted(test_command_handlers.keys(), key=len, reverse=True)
+    for test_prefix in sorted_prefixes:
         if args.startswith(test_prefix):
             test_args = args[len(test_prefix):].strip()
-            await test_handler(client_id, sender, test_args, minecraft_server, agent_server)
+            await test_command_handlers[test_prefix](client_id, sender, test_args, minecraft_server, agent_server)
             return
     
     # 没有找到匹配的测试命令
@@ -186,6 +188,11 @@ async def list_tools(client_id, sender, args, minecraft_server, agent_server):
 async def list_tool_packages(client_id, sender, args, minecraft_server, agent_server):
     """列出可用工具包"""
     packages = agent_server.get_tool_packages()
+    
+    if not packages:
+        await minecraft_server.send_game_message(client_id, "当前没有可用的工具包")
+        return
+        
     await minecraft_server.send_game_message(client_id, f"可用工具包列表 ({len(packages)}个):")
     for name, description in packages.items():
         await minecraft_server.send_game_message(client_id, f"- {name}: {description}")
@@ -236,7 +243,11 @@ async def use_tool(client_id, sender, args, minecraft_server, agent_server):
     parts = args.split(None, 1)
     tool_name = parts[0]
     
-    if tool_name not in agent_server.tools:
+    # 从工具注册表中获取工具
+    from server.utils.tools import tool_registry
+    tool = tool_registry.get_tool(tool_name)
+    
+    if not tool:
         await minecraft_server.send_game_message(client_id, f"找不到工具: {tool_name}")
         await minecraft_server.send_game_message(client_id, "使用 '#测试Agent 列出工具' 查看可用工具")
         return
@@ -262,11 +273,11 @@ async def use_tool(client_id, sender, args, minecraft_server, agent_server):
         await minecraft_server.send_game_message(client_id, f"获取到的参数: {params}")
         
         # 调用工具
-        tool_func = agent_server.tools[tool_name]
-        result = await tool_func(**params)
+        result = await tool.execute(**params)
         
         # 发送结果
-        result_str = json.dumps(result, ensure_ascii=False, indent=2)
+        import json
+        result_str = json.dumps(result.to_dict(), ensure_ascii=False, indent=2)
         await minecraft_server.send_game_message(client_id, f"工具执行结果: {result_str}")
     except Exception as e:
         logger.error(f"执行工具时出错: {e}", exc_info=True)
@@ -280,16 +291,18 @@ async def view_tool(client_id, sender, args, minecraft_server, agent_server):
         return
     
     tool_name = args.strip()
-    if tool_name not in agent_server.tools:
+    
+    # 从工具注册表中获取工具文档
+    from server.utils.tools import tool_registry
+    tool_doc = tool_registry.get_tool_doc(tool_name)
+    
+    if not tool_doc:
         await minecraft_server.send_game_message(client_id, f"找不到工具: {tool_name}")
         await minecraft_server.send_game_message(client_id, "使用 '#测试Agent 列出工具' 查看可用工具")
         return
     
-    # 获取工具描述
-    tool_func = agent_server.tools[tool_name]
-    description = tool_func.__doc__ or "无描述"
     # 格式化描述
-    formatted_desc = "\n".join([line.strip() for line in description.split('\n') if line.strip()])
+    formatted_desc = "\n".join([line.strip() for line in tool_doc.split('\n') if line.strip()])
     
     # 发送工具详细信息
     await minecraft_server.send_game_message(client_id, f"工具详细信息: {tool_name}")

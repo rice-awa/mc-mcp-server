@@ -90,7 +90,7 @@ class MCPServer:
         @self.mcp_server.tool()
         async def execute_command(command: str, client_id: str = None, wait_response: bool = True) -> dict:
             """
-            执行Minecraft命令。
+            与Minecraft客户端交互的工具,执行Minecraft命令。
             
             Args:
                 command (str): 要执行的命令
@@ -156,7 +156,7 @@ class MCPServer:
         @self.mcp_server.tool()
         async def send_message(message: str, client_id: str = None, target: str = None, wait_response: bool = False) -> dict:
             """
-            发送消息到游戏聊天。
+            与Minecraft客户端交互的工具,发送消息到游戏聊天。
             
             Args:
                 message (str): 要发送的消息
@@ -217,14 +217,14 @@ class MCPServer:
                 }
         
         @self.mcp_server.tool()
-        async def get_tool_packages() -> dict:
+        async def get_tool_extension_packages() -> dict:
             """
-            获取可用的工具包列表。
+            获取可用的工具拓展包列表。
             
-            返回所有可用的工具扩展包及其简短描述。
+            返回所有可用的工具拓展包及其简短描述。这些拓展包包含了专门用于Minecraft交互的各类工具集合。
             
             Returns:
-                dict: 工具包信息
+                dict: 工具拓展包信息，包含名称和描述
             """
             if self.minecraft_server and hasattr(self.minecraft_server, "agent_server"):
                 agent_server = self.minecraft_server.agent_server
@@ -233,13 +233,13 @@ class MCPServer:
                         packages = agent_server.get_tool_packages()
                         return {
                             "success": True,
-                            "packages": packages
+                            "extension_packages": packages
                         }
                     except Exception as e:
-                        logger.error(f"获取工具包列表时出错: {e}", exc_info=True)
+                        logger.error(f"获取工具拓展包列表时出错: {e}", exc_info=True)
                         return {
                             "success": False,
-                            "error": f"获取工具包列表时出错: {str(e)}"
+                            "error": f"获取工具拓展包列表时出错: {str(e)}"
                         }
             
             return {
@@ -248,15 +248,15 @@ class MCPServer:
             }
         
         @self.mcp_server.tool()
-        async def get_package_tools(package_name: str) -> dict:
+        async def get_extension_package_tools(package_name: str) -> dict:
             """
-            获取特定工具包中的工具列表。
+            获取特定工具拓展包中的工具列表。
             
             Args:
-                package_name (str): 工具包名称
+                package_name (str): 工具拓展包名称
                 
             Returns:
-                dict: 工具包中的工具信息
+                dict: 工具拓展包中的工具信息，包含工具名称和描述
             """
             if self.minecraft_server and hasattr(self.minecraft_server, "agent_server"):
                 agent_server = self.minecraft_server.agent_server
@@ -269,16 +269,109 @@ class MCPServer:
                             "tools": tools
                         }
                     except Exception as e:
-                        logger.error(f"获取工具包 {package_name} 的工具列表时出错: {e}", exc_info=True)
+                        logger.error(f"获取工具拓展包 {package_name} 的工具列表时出错: {e}", exc_info=True)
                         return {
                             "success": False,
-                            "error": f"获取工具包工具列表时出错: {str(e)}"
+                            "error": f"获取工具拓展包工具列表时出错: {str(e)}"
                         }
             
             return {
                 "success": False,
                 "error": "Agent服务器未连接或不可用"
             }
+            
+        @self.mcp_server.tool()
+        async def get_all_extension_tools() -> dict:
+            """
+            获取所有可用的工具列表。
+            
+            返回所有已注册的工具及其简短描述，不按拓展包分类。
+            
+            Returns:
+                dict: 所有可用工具的信息，包含工具名称和描述
+            """
+            if self.minecraft_server and hasattr(self.minecraft_server, "agent_server"):
+                agent_server = self.minecraft_server.agent_server
+                if agent_server:
+                    try:
+                        tools = agent_server.get_tools()
+                        return {
+                            "success": True,
+                            "tools": tools
+                        }
+                    except Exception as e:
+                        logger.error(f"获取所有工具列表时出错: {e}", exc_info=True)
+                        return {
+                            "success": False,
+                            "error": f"获取所有工具列表时出错: {str(e)}"
+                        }
+            
+            return {
+                "success": False,
+                "error": "Agent服务器未连接或不可用"
+            }
+            
+        @self.mcp_server.tool()
+        async def use_extension_tool(tool_name: str, **kwargs) -> dict:
+            """
+            通用工具调用接口，用于调用任何已注册的工具拓展包中的工具。
+            
+            Args:
+                tool_name (str): 要调用的工具名称
+                **kwargs: 传递给工具的参数，可以直接传递参数或通过kwargs字符串传递
+                
+            Returns:
+                dict: 工具执行结果
+            """
+            # 从注册表获取工具实例
+            tool = tool_registry.get_tool(tool_name)
+            if not tool:
+                return {
+                    "success": False,
+                    "error": f"工具 {tool_name} 不可用或未找到"
+                }
+            
+            try:
+                # 处理可能作为字符串传入的kwargs参数
+                actual_kwargs = {}
+                if 'kwargs' in kwargs and isinstance(kwargs['kwargs'], str):
+                    import json
+                    try:
+                        # 尝试解析kwargs字符串为字典
+                        parsed_kwargs = json.loads(kwargs['kwargs'])
+                        if isinstance(parsed_kwargs, dict):
+                            actual_kwargs.update(parsed_kwargs)
+                        # 保留其他参数
+                        for k, v in kwargs.items():
+                            if k != 'kwargs':
+                                actual_kwargs[k] = v
+                    except json.JSONDecodeError:
+                        # 如果解析失败，保留原始kwargs
+                        logger.warning(f"无法解析kwargs字符串: {kwargs['kwargs']}")
+                        actual_kwargs = kwargs
+                else:
+                    # 如果没有特殊的kwargs参数，直接使用传入的参数
+                    actual_kwargs = kwargs
+                
+                # 记录参数信息，便于调试
+                logger.debug(f"执行工具 {tool_name} - 原始参数: {kwargs}")
+                logger.debug(f"执行工具 {tool_name} - 处理后参数: {actual_kwargs}")
+                
+                # 执行工具
+                result = await tool.execute(**actual_kwargs)
+                
+                # 如果结果是ToolResult实例，转换为字典
+                if isinstance(result, ToolResult):
+                    return result.to_dict()
+                
+                # 否则直接返回结果（向后兼容）
+                return result
+            except Exception as e:
+                logger.error(f"执行工具 {tool_name} 时出错: {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
         
         # 自动注册工具注册表中的所有工具
         for tool_name in tool_registry.get_all_tool_names():
@@ -297,40 +390,24 @@ class MCPServer:
             logger.warning(f"工具 {tool_name} 没有文档字符串")
             return
         
-        # 动态创建工具处理函数
-        @self.mcp_server.tool()
-        async def dynamic_tool(**kwargs):
-            """动态生成的工具处理函数"""
-            # 从注册表获取工具实例
-            tool = tool_registry.get_tool(tool_name)
-            if not tool:
-                return {
-                    "success": False,
-                    "error": f"工具 {tool_name} 不可用"
-                }
+        # 检查是否是内置工具或特殊工具，这些工具已经单独注册
+        special_tools = [
+            "execute_command", 
+            "send_message", 
+            "get_tool_extension_packages", 
+            "get_extension_package_tools",
+            "get_all_extension_tools",
+            "use_extension_tool"
+        ]
+        
+        if tool_name in special_tools:
+            logger.debug(f"跳过注册内置工具: {tool_name}")
+            return
             
-            try:
-                # 执行工具
-                result = await tool.execute(**kwargs)
-                
-                # 如果结果是ToolResult实例，转换为字典
-                if isinstance(result, ToolResult):
-                    return result.to_dict()
-                
-                # 否则直接返回结果（向后兼容）
-                return result
-            except Exception as e:
-                logger.error(f"执行工具 {tool_name} 时出错: {e}", exc_info=True)
-                return {
-                    "success": False,
-                    "error": str(e)
-                }
-        
-        # 设置函数名称和文档字符串
-        dynamic_tool.__name__ = tool_name
-        dynamic_tool.__doc__ = doc_string
-        
         logger.info(f"已从注册表注册工具到MCP: {tool_name}")
+        
+        # 注意：我们不再为每个工具创建单独的动态函数
+        # 所有工具都通过 use_extension_tool 函数调用
     
     def _register_resources(self):
         """注册MCP资源"""

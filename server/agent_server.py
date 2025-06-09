@@ -435,13 +435,13 @@ class AgentServer:
                         module = importlib.import_module(f"tools.{module_name}")
                         
                         # 获取模块文档字符串
-                        module_doc = module.__doc__ or f"{module_name.capitalize()} 工具包"
+                        module_doc = module.__doc__ or f"{module_name.capitalize()} 工具拓展包"
                         
-                        # 提取第一行作为简短描述
-                        short_desc = module_doc.split('\n')[0].strip()
+                        # 格式化文档字符串，保留完整内容但去除多余空格
+                        formatted_doc = "\n".join([line.strip() for line in module_doc.split('\n') if line.strip()])
                         
                         # 将模块添加到包字典
-                        packages[module_name] = short_desc
+                        packages[module_name] = formatted_doc
                     except Exception as e:
                         logger.error(f"加载工具包 {module_name} 时出错: {e}")
         except Exception as e:

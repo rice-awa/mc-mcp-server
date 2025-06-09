@@ -150,6 +150,8 @@ async def handle_test_agent_command(client_id, sender, args, minecraft_server):
         "列出资源": list_resources,
         "使用工具": use_tool,
         "查看工具": view_tool,
+        "列出工具包": list_tool_packages,
+        "查看工具包": view_package_tools,
         "帮助": show_help
     }
     
@@ -159,10 +161,12 @@ async def handle_test_agent_command(client_id, sender, args, minecraft_server):
         return
     
     # 查找并执行对应的测试命令处理器
-    for test_prefix, test_handler in test_command_handlers.items():
+    # 按照命令长度降序排序，确保先匹配最长的命令前缀
+    sorted_prefixes = sorted(test_command_handlers.keys(), key=len, reverse=True)
+    for test_prefix in sorted_prefixes:
         if args.startswith(test_prefix):
             test_args = args[len(test_prefix):].strip()
-            await test_handler(client_id, sender, test_args, minecraft_server, agent_server)
+            await test_command_handlers[test_prefix](client_id, sender, test_args, minecraft_server, agent_server)
             return
     
     # 没有找到匹配的测试命令
@@ -177,6 +181,62 @@ async def list_tools(client_id, sender, args, minecraft_server, agent_server):
         # 提取描述的第一行作为简短描述
         first_line = next((line.strip() for line in description.split('\n') if line.strip()), "无描述")
         await minecraft_server.send_game_message(client_id, f"- {name}: {first_line}")
+    
+    # 提示可以使用工具包命令查看更多组织化的工具
+    await minecraft_server.send_game_message(client_id, "提示: 使用 '#测试Agent 列出工具包' 可查看按功能分类的工具拓展包")
+
+async def list_tool_packages(client_id, sender, args, minecraft_server, agent_server):
+    """列出可用工具拓展包"""
+    packages = agent_server.get_tool_packages()
+    
+    if not packages:
+        await minecraft_server.send_game_message(client_id, "当前没有可用的工具拓展包")
+        return
+        
+    await minecraft_server.send_game_message(client_id, f"可用工具拓展包列表 ({len(packages)}个):")
+    
+    for name, description in packages.items():
+        # 提取描述的第一行作为标题
+        first_line = next((line.strip() for line in description.split('\n') if line.strip()), f"{name.capitalize()} 工具拓展包")
+        await minecraft_server.send_game_message(client_id, f"- {name}: {first_line}")
+        
+        # 发送剩余描述内容（如果有）
+        desc_lines = [line for line in description.split('\n') if line.strip()]
+        if len(desc_lines) > 1:
+            # 发送最多3行额外描述，避免消息过多
+            for line in desc_lines[1:4]:
+                await minecraft_server.send_game_message(client_id, f"  {line}")
+            
+            # 如果描述超过4行，显示省略提示
+            if len(desc_lines) > 4:
+                await minecraft_server.send_game_message(client_id, "  ...")
+    
+    # 提示可以查看特定包的工具
+    await minecraft_server.send_game_message(client_id, "提示: 使用 '#测试Agent 查看工具包 [包名]' 查看包中的工具")
+
+async def view_package_tools(client_id, sender, args, minecraft_server, agent_server):
+    """查看特定工具拓展包中的工具"""
+    if not args:
+        await minecraft_server.send_game_message(client_id, "请指定要查看的工具拓展包名称")
+        await minecraft_server.send_game_message(client_id, "例如: #测试Agent 查看工具包 commands")
+        return
+    
+    package_name = args.strip()
+    tools = agent_server.get_package_tools(package_name)
+    
+    if not tools:
+        await minecraft_server.send_game_message(client_id, f"工具拓展包 '{package_name}' 不存在或没有工具")
+        return
+    
+    await minecraft_server.send_game_message(client_id, f"工具拓展包 '{package_name}' 中的工具 ({len(tools)}个):")
+    
+    for name, description in tools.items():
+        # 提取描述的第一行作为简短描述
+        first_line = next((line.strip() for line in description.split('\n') if line.strip()), "无描述")
+        await minecraft_server.send_game_message(client_id, f"- {name}: {first_line}")
+    
+    # 提示可以查看特定工具的详情
+    await minecraft_server.send_game_message(client_id, "提示: 使用 '#测试Agent 查看工具 [工具名]' 查看工具详情")
 
 async def list_resources(client_id, sender, args, minecraft_server, agent_server):
     """列出可用资源"""
@@ -197,7 +257,11 @@ async def use_tool(client_id, sender, args, minecraft_server, agent_server):
     parts = args.split(None, 1)
     tool_name = parts[0]
     
-    if tool_name not in agent_server.tools:
+    # 从工具注册表中获取工具
+    from server.utils.tools import tool_registry
+    tool = tool_registry.get_tool(tool_name)
+    
+    if not tool:
         await minecraft_server.send_game_message(client_id, f"找不到工具: {tool_name}")
         await minecraft_server.send_game_message(client_id, "使用 '#测试Agent 列出工具' 查看可用工具")
         return
@@ -209,25 +273,56 @@ async def use_tool(client_id, sender, args, minecraft_server, agent_server):
         params = {"client_id": client_id}
         if len(parts) > 1:
             param_str = parts[1]
-            # 使用更智能的参数解析，支持引号内的空格
-            import re
-            # 匹配key=value模式，同时支持带引号的值
-            pattern = r'(\w+)=(?:"([^"]*)"|(\'([^\']*)\')|([^"\'\s][^\s]*))'
-            matches = re.findall(pattern, param_str)
-            for match in matches:
-                key = match[0]
-                # 取出值，优先处理引号中的值
-                value = match[1] or match[3] or match[4]
-                params[key] = value
+            
+            # 首先尝试解析为JSON格式
+            import json
+            try:
+                # 检查是否是完整的JSON对象
+                if param_str.strip().startswith('{') and param_str.strip().endswith('}'):
+                    json_params = json.loads(param_str)
+                    if isinstance(json_params, dict):
+                        params.update(json_params)
+                        await minecraft_server.send_game_message(client_id, f"已解析JSON参数: {json_params}")
+                    else:
+                        await minecraft_server.send_game_message(client_id, "JSON参数必须是一个对象")
+                else:
+                    # 使用传统的键值对解析
+                    import re
+                    # 匹配key=value模式，同时支持带引号的值
+                    pattern = r'(\w+)=(?:"([^"]*)"|(\'([^\']*)\')|([^"\'\s][^\s]*))'
+                    matches = re.findall(pattern, param_str)
+                    for match in matches:
+                        key = match[0]
+                        # 取出值，优先处理引号中的值
+                        value = match[1] or match[3] or match[4]
+                        
+                        # 尝试将值解析为JSON（支持复杂类型）
+                        try:
+                            if value.startswith('{') or value.startswith('['):
+                                parsed_value = json.loads(value)
+                                params[key] = parsed_value
+                            else:
+                                params[key] = value
+                        except json.JSONDecodeError:
+                            params[key] = value
+            except json.JSONDecodeError:
+                # 如果JSON解析失败，回退到传统解析
+                import re
+                pattern = r'(\w+)=(?:"([^"]*)"|(\'([^\']*)\')|([^"\'\s][^\s]*))'
+                matches = re.findall(pattern, param_str)
+                for match in matches:
+                    key = match[0]
+                    value = match[1] or match[3] or match[4]
+                    params[key] = value
         
         await minecraft_server.send_game_message(client_id, f"获取到的参数: {params}")
         
         # 调用工具
-        tool_func = agent_server.tools[tool_name]
-        result = await tool_func(**params)
+        result = await tool.execute(**params)
         
         # 发送结果
-        result_str = json.dumps(result, ensure_ascii=False, indent=2)
+        import json
+        result_str = json.dumps(result.to_dict(), ensure_ascii=False, indent=2)
         await minecraft_server.send_game_message(client_id, f"工具执行结果: {result_str}")
     except Exception as e:
         logger.error(f"执行工具时出错: {e}", exc_info=True)
@@ -241,16 +336,18 @@ async def view_tool(client_id, sender, args, minecraft_server, agent_server):
         return
     
     tool_name = args.strip()
-    if tool_name not in agent_server.tools:
+    
+    # 从工具注册表中获取工具文档
+    from server.utils.tools import tool_registry
+    tool_doc = tool_registry.get_tool_doc(tool_name)
+    
+    if not tool_doc:
         await minecraft_server.send_game_message(client_id, f"找不到工具: {tool_name}")
         await minecraft_server.send_game_message(client_id, "使用 '#测试Agent 列出工具' 查看可用工具")
         return
     
-    # 获取工具描述
-    tool_func = agent_server.tools[tool_name]
-    description = tool_func.__doc__ or "无描述"
     # 格式化描述
-    formatted_desc = "\n".join([line.strip() for line in description.split('\n') if line.strip()])
+    formatted_desc = "\n".join([line.strip() for line in tool_doc.split('\n') if line.strip()])
     
     # 发送工具详细信息
     await minecraft_server.send_game_message(client_id, f"工具详细信息: {tool_name}")
@@ -265,6 +362,8 @@ async def show_help(client_id, sender, args, minecraft_server, agent_server):
     """显示帮助信息"""
     await minecraft_server.send_game_message(client_id, "Agent测试命令帮助:")
     await minecraft_server.send_game_message(client_id, "- 列出工具: 显示所有可用的Agent工具")
+    await minecraft_server.send_game_message(client_id, "- 列出工具包: 显示按功能分类的工具拓展包")
+    await minecraft_server.send_game_message(client_id, "- 查看工具包 [包名]: 查看指定工具拓展包中的工具")
     await minecraft_server.send_game_message(client_id, "- 列出资源: 显示所有可用的Agent资源")
     await minecraft_server.send_game_message(client_id, "- 查看工具 [工具名]: 查看特定工具的详细描述")
     await minecraft_server.send_game_message(client_id, "- 使用工具 [工具名] [参数]: 测试指定的工具")
@@ -313,16 +412,17 @@ def setup_agent_server(minecraft_server=None):
     # 动态导入工具和资源模块
     try:
         # 导入工具
+        from server.utils.tools import tool_registry
+        
+        # 导入工具模块 - 它们会自动注册到工具注册表
         import tools.commands
         import tools.messages
         import tools.script_api
-
-        # 注册工具
-        tools.commands.register_tools(agent_server)
-        tools.messages.register_tools(agent_server)
-        tools.script_api.register_tools(agent_server)
         
-        logger.info("已导入并注册工具模块")
+        # 注册与工具注册表兼容的工具 - 这已经不需要了，工具自动注册
+        # 但是保留这些导入以确保模块被加载
+        
+        logger.info(f"已导入工具模块，工具注册表中有 {len(tool_registry.get_all_tool_names())} 个工具")
     except ImportError as e:
         logger.warning(f"无法导入工具模块: {e}")
     except Exception as e:

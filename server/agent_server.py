@@ -5,6 +5,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Dict, List, Any, Callable, Optional, Union
+from server.utils.tools import tool_registry
 
 logger = logging.getLogger("mc-agent-server")
 
@@ -396,13 +397,92 @@ class AgentServer:
             dict: 工具名称到描述的映射
         """
         tool_info = {}
-        for name, tool_func in self.tools.items():
-            # 获取工具函数的文档字符串作为描述
-            description = tool_func.__doc__ or "无描述"
-            # 确保去除前导空格和缩进
-            description = "\n".join([line.strip() for line in description.split('\n')])
-            tool_info[name] = description
+        
+        # 获取新系统中的工具
+        for name in tool_registry.get_all_tool_names():
+            doc = tool_registry.get_tool_doc(name)
+            if doc:
+                # 确保去除前导空格和缩进
+                description = "\n".join([line.strip() for line in doc.split('\n')])
+                tool_info[name] = description
+        
         return tool_info
+    
+    def get_tool_packages(self) -> Dict[str, str]:
+        """
+        获取所有工具包信息，按照模块组织
+        
+        Returns:
+            dict: 工具包名称到描述的映射
+        """
+        packages = {}
+        
+        try:
+            # 获取工具目录
+            import tools
+            tools_path = Path(tools.__path__[0])
+            
+            # 遍历工具模块
+            for module_info in importlib.util.find_spec("tools").submodule_search_locations:
+                module_path = Path(module_info)
+                for file_path in module_path.glob("*.py"):
+                    if file_path.name == "__init__.py":
+                        continue
+                    
+                    module_name = file_path.stem
+                    try:
+                        # 导入模块
+                        module = importlib.import_module(f"tools.{module_name}")
+                        
+                        # 获取模块文档字符串
+                        module_doc = module.__doc__ or f"{module_name.capitalize()} 工具拓展包"
+                        
+                        # 格式化文档字符串，保留完整内容但去除多余空格
+                        formatted_doc = "\n".join([line.strip() for line in module_doc.split('\n') if line.strip()])
+                        
+                        # 将模块添加到包字典
+                        packages[module_name] = formatted_doc
+                    except Exception as e:
+                        logger.error(f"加载工具包 {module_name} 时出错: {e}")
+        except Exception as e:
+            logger.error(f"获取工具包信息时出错: {e}", exc_info=True)
+        
+        return packages
+    
+    def get_package_tools(self, package_name: str) -> Dict[str, str]:
+        """
+        获取特定工具包中的所有工具
+        
+        Args:
+            package_name (str): 工具包名称
+            
+        Returns:
+            dict: 工具名称到描述的映射
+        """
+        package_tools = {}
+        
+        try:
+            # 尝试导入模块
+            module = importlib.import_module(f"tools.{package_name}")
+            
+            # 获取模块中定义的所有工具类
+            for attr_name in dir(module):
+                attr = getattr(module, attr_name)
+                # 检查是否是注册的工具类
+                if hasattr(attr, "__module__") and attr.__module__ == f"tools.{package_name}":
+                    # 获取工具名称
+                    for tool_name, tool_class in tool_registry.tools.items():
+                        if tool_class == attr:
+                            # 找到了匹配的工具
+                            doc = tool_registry.get_tool_doc(tool_name)
+                            if doc:
+                                # 确保去除前导空格和缩进
+                                description = "\n".join([line.strip() for line in doc.split('\n')])
+                                package_tools[tool_name] = description
+        except Exception as e:
+            logger.error(f"获取工具包 {package_name} 中的工具时出错: {e}", exc_info=True)
+        
+        return package_tools
     
     def get_resources(self) -> Dict[str, str]:
         """
